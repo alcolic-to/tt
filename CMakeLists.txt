@@ -31,7 +31,7 @@ include(cmake/sanitizers.cmake)
 include(cmake/compiler_options.cmake)
 
 set(CPP_FILES main.cpp)
-# set(HPP_FILES )
+set(HPP_FILES issue.hpp)
 set(ALL_FILES ${CPP_FILES} ${HPP_FILES})
 
 add_executable(it ${CPP_FILES})
