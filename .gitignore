@@ -1,0 +1,6 @@
+build/*
+.vscode/*
+Testing/*
+.cache/*
+CMakeFiles/*
+CMakeCache*
