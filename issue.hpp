@@ -59,8 +59,8 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
         std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
 }
 
-enum class Type : u8 { task, bug, feature };
-enum class Status : u8 { not_started, in_prograss, done };
+enum class Type : u8 { task = 0, bug = 1, feature = 2 };
+enum class Status : u8 { not_started = 0, in_prograss = 1, done = 2 };
 
 inline std::string as_string(Type t)
 {
@@ -203,13 +203,8 @@ public:
 
     [[nodiscard]] std::string for_log() const noexcept
     {
-        std::stringstream ss;
-        ss << id() << " ";
-        ss << type() << " ";
-        ss << status() << " ";
-        ss << short_decs();
-
-        return ss.str();
+        return std::format("ID {:<5} T {:<7} S {:<11} -> {}", id(), as_string(type()),
+                           as_string(status()), short_decs());
     }
 
     [[nodiscard]] usize text_size() const noexcept { return m_desc.size(); }
@@ -302,7 +297,7 @@ public:
     {
         std::vector<Issue> issues;
         for (const auto& entry : fs::recursive_directory_iterator{issues_dir}) {
-            log(entry.path());
+            // log(entry.path());
             std::ifstream is{entry.path()};
             issues.emplace_back(Issue::from_fstream(is));
         }
@@ -310,12 +305,14 @@ public:
         return issues;
     }
 
-    void new_issue(const std::string& desc)
+    void new_issue(Type type, std::string desc)
     {
         u64 id = next_id();
         std::ofstream file{new_issue_path(id)};
-        file << Issue{id, Type::task, Status::not_started, desc};
+        file << Issue{id, type, Status::not_started, std::move(desc)};
     }
+
+    void new_issue(std::string desc) { new_issue(Type::task, std::move(desc)); }
 
 private:
     static std::ifstream open_md_read()

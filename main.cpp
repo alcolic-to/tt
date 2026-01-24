@@ -34,8 +34,10 @@ namespace {
 int test_main()
 {
     IssueTracker it;
-    // it.new_issue("Third task.");
-    // it.new_issue("Forth task.");
+    // it.new_issue(Type::task, "This is 1 task.");
+    // it.new_issue(Type::task, "This is 2 task.");
+    // it.new_issue(Type::bug, "This is 3 task.");
+    // it.new_issue(Type::feature, "This is 4 task.");
 
     auto all = IssueTracker::all_issues();
     for (const auto& issue : all)
@@ -64,7 +66,7 @@ void it_main(const CLI::App& app)
 
 int main(int argc, char* argv[])
 {
-    if (dev)
+    if constexpr (dev)
         return test_main();
 
     CLI::App app{"Issue tracker."};
