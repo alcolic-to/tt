@@ -15,34 +15,61 @@
  */
 #pragma once
 
+#include <util.hpp>
 #ifndef ISSUE_HPP
 #define ISSUE_HPP
 
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "types.hpp"
 
-constexpr bool testing = true;
+// NOLINTBEGIN(readability-implicit-bool-conversion)
 
-inline const std::string issue_dir = ".issue"; // NOLINT
-inline const std::string md_file = "md";       // NOLINT
+constexpr bool dev = true;
+
+namespace fs = std::filesystem;
+
+constexpr char path_sep = fs::path::preferred_separator;
+const inline std::string path_sep_str = std::string{path_sep}; // NOLINT
+
+// clang-format off
+inline const std::string main_dir = ".it";                            /* .it/        */ // NOLINT
+inline const std::string issues_dir = main_dir + path_sep + "issues"; /* .it/issues/ */ // NOLINT
+inline const std::string md_file = main_dir + path_sep + "md";        /* .it/md      */ // NOLINT
+// clang-format on
 
 enum class Type : u8 { task, bug, feature };
 enum class Status : u8 { not_started, in_prograss, done };
 
 template<class T>
-u64 for_write(T v)
+void log(T&& value)
+{
+    if constexpr (dev)
+        std::cout << std::forward<T>(value) << "\n";
+}
+
+template<class... Args>
+void log(const std::format_string<Args...>& fmt, Args&&... args)
+{
+    if constexpr (dev)
+        std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
+}
+
+template<class T>
+u64 as_num(T v)
 {
     return static_cast<u64>(v);
 }
 
 inline std::ostream& operator<<(std::ostream& os, Type t)
 {
-    return os << for_write(t);
+    return os << as_num(t);
 }
 
 inline std::istream& operator>>(std::istream& os, Type& t)
@@ -56,7 +83,7 @@ inline std::istream& operator>>(std::istream& os, Type& t)
 
 inline std::ostream& operator<<(std::ostream& os, Status s)
 {
-    return os << for_write(s);
+    return os << as_num(s);
 }
 
 inline std::istream& operator>>(std::istream& os, Status& s)
@@ -78,7 +105,7 @@ static const MD initial_md = {
 
 inline std::ostream& operator<<(std::ostream& os, const MD& md)
 {
-    os << for_write(md.m_id);
+    os << as_num(md.m_id);
     return os;
 }
 
@@ -90,11 +117,16 @@ inline std::istream& operator>>(std::istream& os, MD& md)
 
 class Issue {
 public:
-    Issue(u64 id, Type type, Status status, std::string text)
+    Issue(u64 id, Type type, Status status, std::string desc)
         : m_id{id}
         , m_type{type}
         , m_status{status}
-        , m_text{std::move(text)}
+        , m_desc{std::move(desc)}
+    {
+    }
+
+    Issue(u64 id, auto type, auto status, std::string desc) // NOLINT
+        : Issue(id, static_cast<Type>(type), static_cast<Status>(status), std::move(desc))
     {
     }
 
@@ -104,15 +136,52 @@ public:
 
     [[nodiscard]] Status status() const noexcept { return m_status; }
 
-    [[nodiscard]] const std::string& text() const noexcept { return m_text; }
+    [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
-    [[nodiscard]] usize text_size() const noexcept { return m_text.size(); }
+    [[nodiscard]] std::string short_decs() const noexcept
+    {
+        size_t start = 0;
+        while (start < m_desc.size() && std::isspace(m_desc[start]))
+            ++start;
+
+        return m_desc.substr(start, m_desc.find('\n', start) - start);
+    }
+
+    [[nodiscard]] usize text_size() const noexcept { return m_desc.size(); }
+
+    static Issue from_stream(std::istream& is)
+    {
+        auto check = [](bool cond) {
+            if (!cond)
+                throw std::runtime_error{"Bad issue format."};
+        };
+
+        u64 id{};
+        auto type{as_num(Type{})};
+        auto status{as_num(Status{})};
+
+        std::string token;
+
+        is >> token >> std::skipws >> id;
+        check(token == "ID");
+
+        is >> token >> std::skipws >> type;
+        check(token == "T");
+
+        is >> token >> std::skipws >> status;
+        check(token == "S");
+
+        is >> std::skipws;
+        std::string text{std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
+
+        return Issue{id, type, status, text};
+    }
 
 private:
     u64 m_id;
     Type m_type;
     Status m_status;
-    std::string m_text;
+    std::string m_desc;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Issue& issue)
@@ -121,7 +190,7 @@ inline std::ostream& operator<<(std::ostream& os, const Issue& issue)
     os << "T " << issue.type() << "\n";
     os << "S " << issue.status() << "\n";
     os << "\n";
-    os << issue.text() << "\n";
+    os << issue.desc() << "\n";
 
     return os;
 }
@@ -148,39 +217,52 @@ public:
 
     static void cmd_init()
     {
-        if (std::filesystem::exists(issue_dir))
+        if (std::filesystem::exists(main_dir))
             throw std::runtime_error{"Issue tracker already initialized."};
 
-        std::filesystem::create_directory(issue_dir);
-        std::ofstream mdfs{issue_dir + "/" + md_file};
+        std::filesystem::create_directory(main_dir);
+        std::filesystem::create_directory(issues_dir);
+        std::ofstream mdfs{md_file};
         mdfs << initial_md;
     }
 
-    static std::string new_path(u64 id) { return issue_dir + "/" + std::to_string(id); }
+    static std::string new_issue_path(u64 id) { return issues_dir + path_sep + std::to_string(id); }
 
     void new_issue(const std::string& message)
     {
         u64 id = next_id();
-        std::ofstream file{new_path(id)};
+        std::ofstream file{new_issue_path(id)};
         file << Issue{id, Type::task, Status::not_started, message};
+    }
+
+    static std::vector<Issue> all_issues()
+    {
+        std::vector<Issue> issues;
+        for (const auto& entry : fs::recursive_directory_iterator{issues_dir}) {
+            log(entry.path());
+            std::ifstream is{entry.path()};
+            issues.emplace_back(Issue::from_stream(is));
+        }
+
+        return issues;
     }
 
 private:
     static std::ifstream open_md_read()
     {
-        if (!std::filesystem::exists(issue_dir)) {
-            if constexpr (!testing)
+        if (!std::filesystem::exists(main_dir)) {
+            if constexpr (!dev)
                 throw std::runtime_error{"Issue tracker not initialized. Please run init."};
 
             cmd_init();
         }
 
-        return std::ifstream{issue_dir + "/" + md_file};
+        return std::ifstream{md_file};
     }
 
     static std::ofstream open_md_write()
     {
-        return std::ofstream{issue_dir + "/" + md_file, std::ios::out | std::ios::trunc};
+        return std::ofstream{md_file, std::ios::out | std::ios::trunc};
     }
 
     static MD read_md()
@@ -196,5 +278,7 @@ private:
 private: // NOLINT
     MD m_md;
 };
+
+// NOLINTEND(readability-implicit-bool-conversion)
 
 #endif
