@@ -15,8 +15,8 @@
  */
 #pragma once
 
-#ifndef ISSUE_HPP
-#define ISSUE_HPP
+#ifndef TASK_HPP
+#define TASK_HPP
 
 #include <filesystem>
 #include <fstream>
@@ -40,9 +40,9 @@ constexpr char path_sep = fs::path::preferred_separator;
 const inline std::string path_sep_str = std::string{path_sep}; // NOLINT
 
 // clang-format off
-inline const std::string main_dir = ".it";                            /* .it/        */ // NOLINT
-inline const std::string issues_dir = main_dir + path_sep + "issues"; /* .it/issues/ */ // NOLINT
-inline const std::string md_file = main_dir + path_sep + "md";        /* .it/md      */ // NOLINT
+inline const std::string main_dir = ".tt";                          /* .tt/       */ // NOLINT
+inline const std::string tasks_dir = main_dir + path_sep + "tasks"; /* .tt/tasks/ */ // NOLINT
+inline const std::string md_file = main_dir + path_sep + "md";      /* .tt/md     */ // NOLINT
 // clang-format on
 
 template<class T>
@@ -169,18 +169,13 @@ inline std::ifstream& operator>>(std::ifstream& os, MD& md)
     return os;
 }
 
-class Issue {
+class Task {
 public:
-    Issue(u64 id, Type type, Status status, std::string desc)
+    Task(u64 id, Type type, Status status, std::string desc)
         : m_id{id}
         , m_type{type}
         , m_status{status}
         , m_desc{std::move(desc)}
-    {
-    }
-
-    Issue(u64 id, auto type, auto status, std::string desc) // NOLINT
-        : Issue(id, static_cast<Type>(type), static_cast<Status>(status), std::move(desc))
     {
     }
 
@@ -209,11 +204,11 @@ public:
 
     [[nodiscard]] usize text_size() const noexcept { return m_desc.size(); }
 
-    static Issue from_fstream(std::ifstream& ifs)
+    static Task from_fstream(std::ifstream& ifs)
     {
         auto check = [](bool cond) {
             if (!cond)
-                throw std::runtime_error{"Bad issue format."};
+                throw std::runtime_error{"Bad task format."};
         };
 
         u64 id{};
@@ -236,7 +231,7 @@ public:
         ifs >> std::skipws;
         std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
 
-        return Issue{id, type, status, text};
+        return Task{id, type, status, text};
     }
 
 private:
@@ -246,30 +241,30 @@ private:
     std::string m_desc;
 };
 
-inline std::ofstream& operator<<(std::ofstream& ofs, const Issue& issue)
+inline std::ofstream& operator<<(std::ofstream& ofs, const Task& task)
 {
     ofs << "ID ";
-    ofs << issue.id() << "\n";
+    ofs << task.id() << "\n";
     ofs << "T ";
-    ofs << issue.type() << "\n";
+    ofs << task.type() << "\n";
     ofs << "S ";
-    ofs << issue.status() << "\n\n";
+    ofs << task.status() << "\n";
     ofs << "\n";
-    ofs << issue.desc() << "\n";
+    ofs << task.desc() << "\n";
 
     return ofs;
 }
 
-class IssueTracker {
+class TaskTracker {
 public:
-    explicit IssueTracker() : m_md{read_md()} {}
+    explicit TaskTracker() : m_md{read_md()} {}
 
-    IssueTracker(const IssueTracker&) = delete;
-    IssueTracker(IssueTracker&&) noexcept = delete;
-    IssueTracker& operator=(const IssueTracker&) = delete;
-    IssueTracker& operator=(IssueTracker&&) noexcept = delete;
+    TaskTracker(const TaskTracker&) = delete;
+    TaskTracker(TaskTracker&&) noexcept = delete;
+    TaskTracker& operator=(const TaskTracker&) = delete;
+    TaskTracker& operator=(TaskTracker&&) noexcept = delete;
 
-    ~IssueTracker()
+    ~TaskTracker()
     {
         try {
             auto md_stream{open_md_write()};
@@ -283,43 +278,43 @@ public:
     static void cmd_init()
     {
         if (std::filesystem::exists(main_dir))
-            throw std::runtime_error{"Issue tracker already initialized."};
+            throw std::runtime_error{"Task tracker already initialized."};
 
         std::filesystem::create_directory(main_dir);
-        std::filesystem::create_directory(issues_dir);
+        std::filesystem::create_directory(tasks_dir);
         std::ofstream mdfs{md_file};
         mdfs << initial_md;
     }
 
-    static std::string new_issue_path(u64 id) { return issues_dir + path_sep + std::to_string(id); }
+    static std::string new_task_path(u64 id) { return tasks_dir + path_sep + std::to_string(id); }
 
-    static std::vector<Issue> all_issues()
+    static std::vector<Task> all_tasks()
     {
-        std::vector<Issue> issues;
-        for (const auto& entry : fs::recursive_directory_iterator{issues_dir}) {
+        std::vector<Task> tasks;
+        for (const auto& entry : fs::recursive_directory_iterator{tasks_dir}) {
             // log(entry.path());
             std::ifstream is{entry.path()};
-            issues.emplace_back(Issue::from_fstream(is));
+            tasks.emplace_back(Task::from_fstream(is));
         }
 
-        return issues;
+        return tasks;
     }
 
-    void new_issue(Type type, std::string desc)
+    void new_task(Type type, std::string desc)
     {
         u64 id = next_id();
-        std::ofstream file{new_issue_path(id)};
-        file << Issue{id, type, Status::not_started, std::move(desc)};
+        std::ofstream file{new_task_path(id)};
+        file << Task{id, type, Status::not_started, std::move(desc)};
     }
 
-    void new_issue(std::string desc) { new_issue(Type::task, std::move(desc)); }
+    void new_task(std::string desc) { new_task(Type::task, std::move(desc)); }
 
 private:
     static std::ifstream open_md_read()
     {
         if (!std::filesystem::exists(main_dir)) {
             if constexpr (!dev)
-                throw std::runtime_error{"Issue tracker not initialized. Please run init."};
+                throw std::runtime_error{"Task tracker not initialized. Please run init."};
 
             cmd_init();
         }
@@ -348,4 +343,4 @@ private: // NOLINT
 
 // NOLINTEND(readability-implicit-bool-conversion)
 
-#endif
+#endif // TASK_HPP

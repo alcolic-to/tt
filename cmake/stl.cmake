@@ -1,7 +1,7 @@
 # Sets include directory for external STL lib.
-# User can provide custom STL lib path if it is already installed by setting IT_STL_PATH variable.
-set(IT_STL_PATH "" CACHE STRING "Path to STL common lib.")
-if (IT_STL_PATH STREQUAL "")
+# User can provide custom STL lib path if it is already installed by setting TT_STL_PATH variable.
+set(TT_STL_PATH "" CACHE STRING "Path to STL common lib.")
+if (TT_STL_PATH STREQUAL "")
     include(FetchContent)
 
     FetchContent_Declare(
@@ -12,12 +12,12 @@ if (IT_STL_PATH STREQUAL "")
 
     FetchContent_MakeAvailable(stl)
 
-    message("Using internal STL lib ${stl_SOURCE_DIR} for IT.")
-    set(IT_STL_PATH ${stl_SOURCE_DIR} CACHE STRING "Path to STL common lib." FORCE)
-    message("IT_STL_PATH value: ${IT_STL_PATH}")
+    message("Using internal STL lib ${stl_SOURCE_DIR} for TT.")
+    set(TT_STL_PATH ${stl_SOURCE_DIR} CACHE STRING "Path to STL common lib." FORCE)
+    message("TT_STL_PATH value: ${TT_STL_PATH}")
 else ()
-    set(IT_STL_PATH ${IT_STL_PATH} CACHE STRING "Path to STL common lib." FORCE)
-    message("Using external STL lib ${IT_STL_PATH} for IT.")
+    set(TT_STL_PATH ${TT_STL_PATH} CACHE STRING "Path to STL common lib." FORCE)
+    message("Using external STL lib ${TT_STL_PATH} for TT.")
 endif ()
 
-target_include_directories(it SYSTEM PUBLIC ${IT_STL_PATH})
+target_include_directories(tt SYSTEM PUBLIC ${TT_STL_PATH})

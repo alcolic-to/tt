@@ -1,5 +1,5 @@
-OPTION(IT_ENABLE_CLANG_TIDY "Enable static analysis with clang-tidy." OFF)
-if (NOT IT_ENABLE_CLANG_TIDY)
+OPTION(TT_ENABLE_CLANG_TIDY "Enable static analysis with clang-tidy." OFF)
+if (NOT TT_ENABLE_CLANG_TIDY)
     return()
 endif()
 

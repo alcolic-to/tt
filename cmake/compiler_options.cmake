@@ -9,8 +9,8 @@ endif()
 # Next section is compiler options.
 
 # Optional, using libc++ for better debugging with lldb-dap.
-OPTION(IT_USE_LIBCPP "If set, sets compiler stdlib value to libc++." ON)
-if (IT_USE_LIBCPP)
+OPTION(TT_USE_LIBCPP "If set, sets compiler stdlib value to libc++." ON)
+if (TT_USE_LIBCPP)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif()
 

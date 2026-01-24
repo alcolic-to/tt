@@ -6,13 +6,13 @@
 
 # If you want to play around, you can just enable BUILD_MAIN which builds main.cpp file.
 
-# To enable tracy profiler, build project with IT_ENABLE_TRACY=ON and make sure to have debug symbols (e.g. RelWithDebugInfo)
+# To enable tracy profiler, build project with TT_ENABLE_TRACY=ON and make sure to have debug symbols (e.g. RelWithDebugInfo)
 # You will also need tracy server, GUI etc. installed, since we are not build it from scratch (I tried couple of times and it failed, so I gave up).
 # For windows, found needed binaries under releases https://github.com/wolfpld/tracy. Note that server (downloaded binaries) and client version (one compiled by finder) needs to be the same.
 # Also, on windows, make sure to run program as administrator so tracy can collect stack traces.
 
 cmake_minimum_required(VERSION 3.10)
-project(issue_tracker)
+project(task_tracker)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -31,18 +31,18 @@ include(cmake/sanitizers.cmake)
 include(cmake/compiler_options.cmake)
 
 set(CPP_FILES main.cpp)
-set(HPP_FILES issue.hpp)
+set(HPP_FILES task.hpp)
 set(ALL_FILES ${CPP_FILES} ${HPP_FILES})
 
-add_executable(it ${CPP_FILES})
+add_executable(tt ${CPP_FILES})
 
 include(cmake/stl.cmake)
 
-target_include_directories(it SYSTEM PUBLIC third_party)
+target_include_directories(tt SYSTEM PUBLIC third_party)
 
 include(cmake/profilers.cmake)
-if (IT_ENABLE_TRACY)
-    add_tracy(it)
+if (TT_ENABLE_TRACY)
+    add_tracy(tt)
 endif()
 
 include(CTest)

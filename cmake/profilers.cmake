@@ -3,8 +3,8 @@
 # For windows, found needed binaries under releases https://github.com/wolfpld/tracy. Note that server (downloaded binaries) and client version (one compiled by UMS) needs to be the same.
 # Also, on windows, make sure to run program as administrator so tracy can collect stack traces.
 
-OPTION(IT_ENABLE_TRACY "If set, enables tracy profiler and adds function to enable tracy for projects." OFF)
-if (NOT IT_ENABLE_TRACY)
+OPTION(TT_ENABLE_TRACY "If set, enables tracy profiler and adds function to enable tracy for projects." OFF)
+if (NOT TT_ENABLE_TRACY)
     return()
 endif()
 

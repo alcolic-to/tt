@@ -17,7 +17,7 @@
 #include <iostream>
 
 #include "cli11/CLI11.hpp"
-#include "issue.hpp"
+#include "task.hpp"
 
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto)
 
@@ -33,15 +33,14 @@ namespace {
 
 int test_main()
 {
-    IssueTracker it;
-    // it.new_issue(Type::task, "This is 1 task.");
-    // it.new_issue(Type::task, "This is 2 task.");
-    // it.new_issue(Type::bug, "This is 3 task.");
-    // it.new_issue(Type::feature, "This is 4 task.");
+    TaskTracker tt;
 
-    auto all = IssueTracker::all_issues();
-    for (const auto& issue : all)
-        std::cout << issue.for_log() << "\n";
+    for (u64 i = 0; i < 1024 * 10; ++i)
+        tt.new_task(Type::task, std::format("This is {} task.", i));
+
+    auto all = TaskTracker::all_tasks();
+    for (const auto& task : all)
+        std::cout << task.for_log() << "\n";
 
     return 0;
 }
@@ -49,9 +48,9 @@ int test_main()
 void it_main(const CLI::App& app)
 {
     if (auto* init = app.get_subcommand(subcmd_init); init != nullptr && init->parsed())
-        return IssueTracker::cmd_init();
+        return TaskTracker::cmd_init();
 
-    IssueTracker it;
+    TaskTracker it;
 
     if (auto* cmd_new = app.get_subcommand(subcmd_new); cmd_new != nullptr && cmd_new->parsed()) {
         if (CLI::Option* opt = cmd_new->get_option(opt_message_short); *opt) {
@@ -69,24 +68,24 @@ int main(int argc, char* argv[])
     if constexpr (dev)
         return test_main();
 
-    CLI::App app{"Issue tracker."};
+    CLI::App app{"Task tracker."};
     argv = app.ensure_utf8(argv);
 
-    app.set_version_flag("-v,--version", version, "Finder version.");
+    app.set_version_flag("-v,--version", version, "Task tracker version.");
 
     /**
      * Init subcommand.
      */
-    auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes issue tracker.");
+    auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
     app.require_subcommand();
 
     /**
      * New subcommand.
      */
-    auto* cmd_new = app.add_subcommand(subcmd_new, "Creates new issue.");
+    auto* cmd_new = app.add_subcommand(subcmd_new, "Creates new task.");
     app.require_subcommand();
 
-    cmd_new->add_option(opt_message, "Message that will be written to issue.");
+    cmd_new->add_option(opt_message, "Message that will be written to the task.");
 
     CLI11_PARSE(app, argc, argv);
 
