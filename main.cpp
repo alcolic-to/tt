@@ -34,7 +34,8 @@ namespace {
 int test_main()
 {
     IssueTracker it;
-    it.new_issue("First task.");
+    it.new_issue("Third task.");
+    it.new_issue("Forth task.");
 
     return 0;
 }

@@ -28,8 +28,8 @@
 
 constexpr bool testing = true;
 
-inline const std::string issue_dir = ".issue";          // NOLINT
-inline const std::string md_file = "md_long_file_name"; // NOLINT
+inline const std::string issue_dir = ".issue"; // NOLINT
+inline const std::string md_file = "md";       // NOLINT
 
 enum class Type : u8 { task, bug, feature };
 enum class Status : u8 { not_started, in_prograss, done };
@@ -128,14 +128,23 @@ inline std::ostream& operator<<(std::ostream& os, const Issue& issue)
 
 class IssueTracker {
 public:
-    explicit IssueTracker() : m_md_file{open_md()}, m_md{read_md(m_md_file)} {}
+    explicit IssueTracker() : m_md{read_md()} {}
 
     IssueTracker(const IssueTracker&) = delete;
     IssueTracker(IssueTracker&&) noexcept = delete;
     IssueTracker& operator=(const IssueTracker&) = delete;
     IssueTracker& operator=(IssueTracker&&) noexcept = delete;
 
-    ~IssueTracker() { m_md_file << m_md; }
+    ~IssueTracker()
+    {
+        try {
+            auto md_stream{open_md_write()};
+            md_stream << m_md;
+        }
+        catch (const std::exception& ex) {
+            std::cout << "Failed to write new md: " << ex.what() << "\n";
+        }
+    }
 
     static void cmd_init()
     {
@@ -157,7 +166,7 @@ public:
     }
 
 private:
-    static std::fstream open_md()
+    static std::ifstream open_md_read()
     {
         if (!std::filesystem::exists(issue_dir)) {
             if constexpr (!testing)
@@ -166,11 +175,17 @@ private:
             cmd_init();
         }
 
-        return std::fstream{issue_dir + "/" + md_file};
+        return std::ifstream{issue_dir + "/" + md_file};
     }
 
-    static MD read_md(std::istream& md_stream)
+    static std::ofstream open_md_write()
     {
+        return std::ofstream{issue_dir + "/" + md_file, std::ios::out | std::ios::trunc};
+    }
+
+    static MD read_md()
+    {
+        std::ifstream md_stream{open_md_read()};
         MD md{};
         md_stream >> md;
         return md;
@@ -179,7 +194,6 @@ private:
     u64 next_id() { return m_md.m_id++; }
 
 private: // NOLINT
-    std::fstream m_md_file;
     MD m_md;
 };
 
