@@ -39,7 +39,7 @@ int test_main()
 
     auto all = IssueTracker::all_issues();
     for (const auto& issue : all)
-        std::cout << "Issue: " << issue.short_decs() << "\n";
+        std::cout << issue.for_log() << "\n";
 
     return 0;
 }

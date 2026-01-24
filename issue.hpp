@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <util.hpp>
 #ifndef ISSUE_HPP
 #define ISSUE_HPP
 
@@ -23,8 +22,10 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "types.hpp"
@@ -44,9 +45,6 @@ inline const std::string issues_dir = main_dir + path_sep + "issues"; /* .it/iss
 inline const std::string md_file = main_dir + path_sep + "md";        /* .it/md      */ // NOLINT
 // clang-format on
 
-enum class Type : u8 { task, bug, feature };
-enum class Status : u8 { not_started, in_prograss, done };
-
 template<class T>
 void log(T&& value)
 {
@@ -61,36 +59,92 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
         std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
 }
 
+enum class Type : u8 { task, bug, feature };
+enum class Status : u8 { not_started, in_prograss, done };
+
+inline std::string as_string(Type t)
+{
+    switch (t) { // clang-format off
+    case Type::task:    return "task";
+    case Type::bug:     return "bug";
+    case Type::feature: return "feature";
+    default:            return "invalid";
+    } // clang-format on
+}
+
+inline std::string as_string(Status s)
+{
+    switch (s) { // clang-format off
+    case Status::not_started: return "not started";
+    case Status::in_prograss: return "in progress";
+    case Status::done:        return "done";
+    default:                  return "invalid";
+    } // clang-format on
+}
+
+template<class T>
+inline T as(u64 value)
+{
+    if constexpr (std::is_same_v<T, Type>) {
+        if (value > u64(Type::feature))
+            throw std::runtime_error{"Invalid type."};
+
+        return Type(value);
+    }
+    else if constexpr (std::is_same_v<T, Status>) {
+        if (value > u64(Status::done))
+            throw std::runtime_error{"Invalid type."};
+
+        return Status(value);
+    }
+    else
+        static_assert(!"Invalid type.");
+}
+
 template<class T>
 u64 as_num(T v)
 {
     return static_cast<u64>(v);
 }
 
-inline std::ostream& operator<<(std::ostream& os, Type t)
+inline std::ofstream& operator<<(std::ofstream& ofs, Type t)
 {
-    return os << as_num(t);
+    ofs << as_num(t);
+    return ofs;
 }
 
-inline std::istream& operator>>(std::istream& os, Type& t)
+inline std::stringstream& operator<<(std::stringstream& os, Type t)
 {
-    u8 read_t = 0;
+    os << as_string(t);
+    return os;
+}
+
+inline std::ifstream& operator>>(std::ifstream& os, Type& type)
+{
+    u64 read_t = 0;
     os >> read_t;
-    t = Type(read_t);
+    type = as<Type>(read_t);
 
     return os;
 }
 
-inline std::ostream& operator<<(std::ostream& os, Status s)
+inline std::ofstream& operator<<(std::ofstream& os, Status s)
 {
-    return os << as_num(s);
+    os << as_num(s);
+    return os;
 }
 
-inline std::istream& operator>>(std::istream& os, Status& s)
+inline std::stringstream& operator<<(std::stringstream& os, Status s)
 {
-    u8 read_s = 0;
+    os << as_string(s);
+    return os;
+}
+
+inline std::ifstream& operator>>(std::ifstream& os, Status& s)
+{
+    u64 read_s = 0;
     os >> read_s;
-    s = Status(read_s);
+    s = as<Status>(read_s);
 
     return os;
 }
@@ -103,13 +157,13 @@ static const MD initial_md = {
     .m_id = 1,
 };
 
-inline std::ostream& operator<<(std::ostream& os, const MD& md)
+inline std::ofstream& operator<<(std::ofstream& os, const MD& md)
 {
     os << as_num(md.m_id);
     return os;
 }
 
-inline std::istream& operator>>(std::istream& os, MD& md)
+inline std::ifstream& operator>>(std::ifstream& os, MD& md)
 {
     os >> md.m_id;
     return os;
@@ -147,9 +201,20 @@ public:
         return m_desc.substr(start, m_desc.find('\n', start) - start);
     }
 
+    [[nodiscard]] std::string for_log() const noexcept
+    {
+        std::stringstream ss;
+        ss << id() << " ";
+        ss << type() << " ";
+        ss << status() << " ";
+        ss << short_decs();
+
+        return ss.str();
+    }
+
     [[nodiscard]] usize text_size() const noexcept { return m_desc.size(); }
 
-    static Issue from_stream(std::istream& is)
+    static Issue from_fstream(std::ifstream& ifs)
     {
         auto check = [](bool cond) {
             if (!cond)
@@ -157,22 +222,24 @@ public:
         };
 
         u64 id{};
-        auto type{as_num(Type{})};
-        auto status{as_num(Status{})};
-
+        Type type{};
+        Status status{};
         std::string token;
 
-        is >> token >> std::skipws >> id;
+        ifs >> token >> std::skipws;
         check(token == "ID");
+        ifs >> id;
 
-        is >> token >> std::skipws >> type;
+        ifs >> token >> std::skipws;
         check(token == "T");
+        ifs >> type;
 
-        is >> token >> std::skipws >> status;
+        ifs >> token >> std::skipws;
         check(token == "S");
+        ifs >> status;
 
-        is >> std::skipws;
-        std::string text{std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
+        ifs >> std::skipws;
+        std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
 
         return Issue{id, type, status, text};
     }
@@ -184,15 +251,18 @@ private:
     std::string m_desc;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Issue& issue)
+inline std::ofstream& operator<<(std::ofstream& ofs, const Issue& issue)
 {
-    os << "ID " << issue.id() << "\n";
-    os << "T " << issue.type() << "\n";
-    os << "S " << issue.status() << "\n";
-    os << "\n";
-    os << issue.desc() << "\n";
+    ofs << "ID ";
+    ofs << issue.id() << "\n";
+    ofs << "T ";
+    ofs << issue.type() << "\n";
+    ofs << "S ";
+    ofs << issue.status() << "\n\n";
+    ofs << "\n";
+    ofs << issue.desc() << "\n";
 
-    return os;
+    return ofs;
 }
 
 class IssueTracker {
@@ -228,23 +298,23 @@ public:
 
     static std::string new_issue_path(u64 id) { return issues_dir + path_sep + std::to_string(id); }
 
-    void new_issue(const std::string& message)
-    {
-        u64 id = next_id();
-        std::ofstream file{new_issue_path(id)};
-        file << Issue{id, Type::task, Status::not_started, message};
-    }
-
     static std::vector<Issue> all_issues()
     {
         std::vector<Issue> issues;
         for (const auto& entry : fs::recursive_directory_iterator{issues_dir}) {
             log(entry.path());
             std::ifstream is{entry.path()};
-            issues.emplace_back(Issue::from_stream(is));
+            issues.emplace_back(Issue::from_fstream(is));
         }
 
         return issues;
+    }
+
+    void new_issue(const std::string& desc)
+    {
+        u64 id = next_id();
+        std::ofstream file{new_issue_path(id)};
+        file << Issue{id, Type::task, Status::not_started, desc};
     }
 
 private:
