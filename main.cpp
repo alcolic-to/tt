@@ -27,9 +27,17 @@ const std::string subcmd_init = "init"; // NOLINT
 const std::string subcmd_new = "new";   // NOLINT
 
 const std::string opt_message = "-m,--messsage"; // NOLINT
-const std::string opt_message_shoort = "-m";     // NOLINT
+const std::string opt_message_short = "-m";      // NOLINT
 
 namespace {
+
+int test_main()
+{
+    IssueTracker it;
+    it.new_issue("First task.");
+
+    return 0;
+}
 
 void it_main(const CLI::App& app)
 {
@@ -39,7 +47,7 @@ void it_main(const CLI::App& app)
     IssueTracker it;
 
     if (auto* cmd_new = app.get_subcommand(subcmd_new); cmd_new != nullptr && cmd_new->parsed()) {
-        if (CLI::Option* opt = cmd_new->get_option(opt_message_shoort); *opt) {
+        if (CLI::Option* opt = cmd_new->get_option(opt_message_short); *opt) {
             // std::cout << "New subcommand: -m provided\n";
             // std::string message = opt->as<std::string>();
             // std::cout << "Message: " << message << "\n";
@@ -51,6 +59,9 @@ void it_main(const CLI::App& app)
 
 int main(int argc, char* argv[])
 {
+    if (testing)
+        return test_main();
+
     CLI::App app{"Issue tracker."};
     argv = app.ensure_utf8(argv);
 

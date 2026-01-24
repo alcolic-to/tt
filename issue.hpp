@@ -18,7 +18,6 @@
 #ifndef ISSUE_HPP
 #define ISSUE_HPP
 
-#include <bit>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -27,19 +26,67 @@
 
 #include "types.hpp"
 
+constexpr bool testing = true;
+
 inline const std::string issue_dir = ".issue";          // NOLINT
 inline const std::string md_file = "md_long_file_name"; // NOLINT
 
 enum class Type : u8 { task, bug, feature };
 enum class Status : u8 { not_started, in_prograss, done };
 
+template<class T>
+u64 for_write(T v)
+{
+    return static_cast<u64>(v);
+}
+
+inline std::ostream& operator<<(std::ostream& os, Type t)
+{
+    return os << for_write(t);
+}
+
+inline std::istream& operator>>(std::istream& os, Type& t)
+{
+    u8 read_t = 0;
+    os >> read_t;
+    t = Type(read_t);
+
+    return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, Status s)
+{
+    return os << for_write(s);
+}
+
+inline std::istream& operator>>(std::istream& os, Status& s)
+{
+    u8 read_s = 0;
+    os >> read_s;
+    s = Status(read_s);
+
+    return os;
+}
+
 struct MD {
-    u64 id;
+    u64 m_id;
 };
 
 static const MD initial_md = {
-    .id = 1,
+    .m_id = 1,
 };
+
+inline std::ostream& operator<<(std::ostream& os, const MD& md)
+{
+    os << for_write(md.m_id);
+    return os;
+}
+
+inline std::istream& operator>>(std::istream& os, MD& md)
+{
+    os >> md.m_id;
+    return os;
+}
 
 class Issue {
 public:
@@ -47,7 +94,6 @@ public:
         : m_id{id}
         , m_type{type}
         , m_status{status}
-        , m_text_size{text.size()}
         , m_text{std::move(text)}
     {
     }
@@ -60,23 +106,36 @@ public:
 
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
 
+    [[nodiscard]] usize text_size() const noexcept { return m_text.size(); }
+
 private:
     u64 m_id;
     Type m_type;
     Status m_status;
-    u64 m_text_size;
     std::string m_text;
 };
 
+inline std::ostream& operator<<(std::ostream& os, const Issue& issue)
+{
+    os << "ID " << issue.id() << "\n";
+    os << "T " << issue.type() << "\n";
+    os << "S " << issue.status() << "\n";
+    os << "\n";
+    os << issue.text() << "\n";
+
+    return os;
+}
+
 class IssueTracker {
 public:
-    explicit IssueTracker() : m_md{open_md()}
-    {
-        MD md; // NOLINT
-        m_md.read(std::bit_cast<char*>(&md), sizeof(md));
+    explicit IssueTracker() : m_md_file{open_md()}, m_md{read_md(m_md_file)} {}
 
-        m_id = md.id;
-    }
+    IssueTracker(const IssueTracker&) = delete;
+    IssueTracker(IssueTracker&&) noexcept = delete;
+    IssueTracker& operator=(const IssueTracker&) = delete;
+    IssueTracker& operator=(IssueTracker&&) noexcept = delete;
+
+    ~IssueTracker() { m_md_file << m_md; }
 
     static void cmd_init()
     {
@@ -85,25 +144,43 @@ public:
 
         std::filesystem::create_directory(issue_dir);
         std::ofstream mdfs{issue_dir + "/" + md_file};
-        mdfs.write(std::bit_cast<char*>(&initial_md), sizeof(initial_md));
+        mdfs << initial_md;
     }
 
-    void new_issue(const std::string& message) { auto id = next_id(); }
+    static std::string new_path(u64 id) { return issue_dir + "/" + std::to_string(id); }
+
+    void new_issue(const std::string& message)
+    {
+        u64 id = next_id();
+        std::ofstream file{new_path(id)};
+        file << Issue{id, Type::task, Status::not_started, message};
+    }
 
 private:
     static std::fstream open_md()
     {
-        if (!std::filesystem::exists(issue_dir))
-            throw std::runtime_error{"Issue tracker not initialized. Please run init."};
+        if (!std::filesystem::exists(issue_dir)) {
+            if constexpr (!testing)
+                throw std::runtime_error{"Issue tracker not initialized. Please run init."};
+
+            cmd_init();
+        }
 
         return std::fstream{issue_dir + "/" + md_file};
     }
 
-    u64 next_id() { return m_id++; }
+    static MD read_md(std::istream& md_stream)
+    {
+        MD md{};
+        md_stream >> md;
+        return md;
+    }
+
+    u64 next_id() { return m_md.m_id++; }
 
 private: // NOLINT
-    std::fstream m_md;
-    u64 m_id{0};
+    std::fstream m_md_file;
+    MD m_md;
 };
 
 #endif
