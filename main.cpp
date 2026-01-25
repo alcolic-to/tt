@@ -25,14 +25,15 @@
 const std::string version = "0.0.1"; // NOLINT
 
 const std::string subcmd_init = "init"; // NOLINT
+const std::string subcmd_new = "new";   // NOLINT
+const std::string subcmd_log = "log";   // NOLINT
+const std::string subcmd_show = "show"; // NOLINT
 
-const std::string subcmd_new = "new";           // NOLINT
+const std::string req_id = "id";
 const std::string opt_message = "-m,--message"; // NOLINT
 const std::string opt_message_short = "-m";     // NOLINT
 const std::string opt_type = "-t,--type";       // NOLINT
 const std::string opt_type_short = "-t";        // NOLINT
-
-const std::string subcmd_log = "log"; // NOLINT
 
 namespace {
 
@@ -90,6 +91,12 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
         std::cout << task.for_log() << "\n";
 }
 
+void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
+{
+    ID id = as<ID>(cmd_show.get_option(req_id)->as<u64>());
+    std::cout << tt.get_task(id).for_show();
+}
+
 void tt_main(const CLI::App& app)
 {
     if (auto* init = app.get_subcommand(subcmd_init); init != nullptr && init->parsed())
@@ -102,6 +109,9 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_log); *cmd)
         return tt_cmd_log(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_show); *cmd)
+        return tt_cmd_show(tt, *cmd);
 }
 
 } // namespace
@@ -132,6 +142,12 @@ int main(int argc, char* argv[])
      * Log subcommand.
      */
     [[maybe_unused]] auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all tasks.");
+
+    /**
+     * Show subcommand.
+     */
+    [[maybe_unused]] auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
+    cmd_show->add_option(req_id, "Task id.")->required(true);
 
     app.require_subcommand();
 
