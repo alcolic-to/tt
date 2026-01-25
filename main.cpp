@@ -19,7 +19,7 @@
 #include "cli11/CLI11.hpp"
 #include "task.hpp"
 
-// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto)
+// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance)
 
 const std::string version = "0.0.1"; // NOLINT
 
@@ -39,9 +39,17 @@ int test_main()
         // for (u64 i = 0; i < 10; ++i)
         //     tt.new_task(Type::task, std::format("This is {} task.", i));
 
-        auto all = TaskTracker::all_tasks();
+        // tt.change_task_status(ID(2), Status::in_progress);
+
+        auto all = tt.all_tasks();
         for (const auto& task : all)
             std::cout << task.for_log() << "\n";
+
+        // tt.resolve_task(ID(1));
+
+        // all = tt.all_tasks();
+        // for (const auto& task : all)
+        //     std::cout << task.for_log() << "\n";
 
         // Task t1{TaskTracker::get_task(1)};
         // std::cout << t1.for_show() << "\n";
@@ -118,4 +126,4 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-// NOLINTEND(hicpp-use-auto, modernize-use-auto)
+// NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance)

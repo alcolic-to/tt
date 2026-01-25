@@ -22,7 +22,6 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -30,7 +29,8 @@
 
 #include "types.hpp"
 
-// NOLINTBEGIN(readability-implicit-bool-conversion)
+// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
+// readability-convert-member-functions-to-static)
 
 constexpr bool dev = true;
 
@@ -61,7 +61,7 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
 
 enum class ID : u64 {};
 enum class Type : u8 { task = 0, bug = 1, feature = 2 };
-enum class Status : u8 { not_started = 0, in_prograss = 1, done = 2 };
+enum class Status : u8 { not_started = 0, in_progress = 1, done = 2 };
 
 template<class T>
 constexpr T as(u64 value)
@@ -110,7 +110,7 @@ inline std::string as_string(Status s)
 {
     switch (s) { // clang-format off
     case Status::not_started: return "not started";
-    case Status::in_prograss: return "in progress";
+    case Status::in_progress: return "in progress";
     case Status::done:        return "done";
     default:                  return "invalid";
     } // clang-format on
@@ -165,6 +165,12 @@ public:
     [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
     [[nodiscard]] usize desc_size() const noexcept { return m_desc.size(); }
+
+    void set_type(Type t) { m_type = t; }
+
+    void set_status(Status s) { m_status = s; }
+
+    void set_desc(std::string desc) { m_desc = std::move(desc); }
 
     [[nodiscard]] std::string short_desc() const noexcept
     {
@@ -265,13 +271,13 @@ public:
 
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_dir);
-        std::ofstream mdfs{md_file};
+        std::ofstream mdfs{open_md_write()};
         md_to_fstream(mdfs, initial_md);
     }
 
-    static std::string new_task_path(ID id) { return tasks_dir + path_sep + as_string(id); }
+    std::string task_path(ID id) { return tasks_dir + path_sep + as_string(id); }
 
-    static std::vector<Task> all_tasks()
+    std::vector<Task> all_tasks()
     {
         std::vector<Task> tasks;
         for (const auto& entry : fs::recursive_directory_iterator{tasks_dir}) {
@@ -283,23 +289,40 @@ public:
         return tasks;
     }
 
-    static Task get_task(u64 id)
+    [[nodiscard]] Task get_task(ID id)
     {
-        std::ifstream ifs{tasks_dir + path_sep + std::to_string(id)};
+        std::ifstream ifs{task_path(id)};
         if (!ifs)
-            throw std::runtime_error{std::format("Task {} does not exist.", id)};
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
 
         return task_from_fstream(ifs);
     }
 
+    void change_task_status(ID id, Status status)
+    {
+        Task t{get_task(id)};
+        t.set_status(status);
+        save_task(t);
+    }
+
+    void save_task(const Task& task)
+    {
+        std::ofstream ofs{task_path(task.id()), std::ios::trunc};
+        task_to_fstream(ofs, task);
+    }
+
     void new_task(Type type, std::string desc)
     {
-        ID id = next_id();
-        std::ofstream file{new_task_path(id)};
-        task_to_fstream(file, Task{id, type, Status::not_started, std::move(desc)});
+        save_task(Task{next_id(), type, Status::not_started, std::move(desc)});
     }
 
     void new_task(std::string desc) { new_task(Type::task, std::move(desc)); }
+
+    void reopen_task(ID id) { change_task_status(id, Status::not_started); }
+
+    void in_progress_task(ID id) { change_task_status(id, Status::in_progress); }
+
+    void resolve_task(ID id) { change_task_status(id, Status::done); }
 
 private:
     static std::ifstream open_md_read()
@@ -314,10 +337,7 @@ private:
         return std::ifstream{md_file};
     }
 
-    static std::ofstream open_md_write()
-    {
-        return std::ofstream{md_file, std::ios::out | std::ios::trunc};
-    }
+    static std::ofstream open_md_write() { return std::ofstream{md_file, std::ios::trunc}; }
 
     static MD read_md()
     {
@@ -331,6 +351,7 @@ private: // NOLINT
     MD m_md;
 };
 
-// NOLINTEND(readability-implicit-bool-conversion)
+// NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
+// readability-convert-member-functions-to-static)
 
 #endif // TASK_HPP
