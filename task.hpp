@@ -32,7 +32,7 @@
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-convert-member-functions-to-static)
 
-constexpr bool dev = true;
+constexpr bool dev = false;
 
 namespace fs = std::filesystem;
 
@@ -71,18 +71,18 @@ constexpr T as(u64 value)
     }
     else if constexpr (std::is_same_v<T, Type>) {
         if (value > u64(Type::feature))
-            throw std::runtime_error{"Invalid type."};
+            throw std::runtime_error{"Invalid task type."};
 
         return Type(value);
     }
     else if constexpr (std::is_same_v<T, Status>) {
         if (value > u64(Status::done))
-            throw std::runtime_error{"Invalid type."};
+            throw std::runtime_error{"Invalid task status."};
 
         return Status(value);
     }
     else
-        static_assert(!"Invalid type.");
+        static_assert(!"Invalid return type.");
 }
 
 template<class T>

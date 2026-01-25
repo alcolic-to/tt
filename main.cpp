@@ -19,19 +19,24 @@
 #include "cli11/CLI11.hpp"
 #include "task.hpp"
 
-// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance)
+// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
+// readability-avoid-return-with-void-value)
 
 const std::string version = "0.0.1"; // NOLINT
 
 const std::string subcmd_init = "init"; // NOLINT
-const std::string subcmd_new = "new";   // NOLINT
 
-const std::string opt_message = "-m,--messsage"; // NOLINT
-const std::string opt_message_short = "-m";      // NOLINT
+const std::string subcmd_new = "new";           // NOLINT
+const std::string opt_message = "-m,--message"; // NOLINT
+const std::string opt_message_short = "-m";     // NOLINT
+const std::string opt_type = "-t,--type";       // NOLINT
+const std::string opt_type_short = "-t";        // NOLINT
+
+const std::string subcmd_log = "log"; // NOLINT
 
 namespace {
 
-int test_main()
+int test_main() // NOLINT
 {
     try {
         TaskTracker tt;
@@ -65,20 +70,38 @@ int test_main()
     return 0;
 }
 
-void it_main(const CLI::App& app)
+void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
+{
+    std::string desc;
+    Type type{Type::task};
+
+    if (CLI::Option* opt = cmd_new.get_option(opt_message_short); *opt)
+        desc = opt->as<std::string>();
+
+    if (CLI::Option* opt = cmd_new.get_option(opt_type_short); *opt)
+        type = as<Type>(opt->as<u64>());
+
+    tt.new_task(type, std::move(desc));
+}
+
+void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
+{
+    for (const Task& task : tt.all_tasks())
+        std::cout << task.for_log() << "\n";
+}
+
+void tt_main(const CLI::App& app)
 {
     if (auto* init = app.get_subcommand(subcmd_init); init != nullptr && init->parsed())
         return TaskTracker::cmd_init();
 
-    TaskTracker it;
+    TaskTracker tt;
 
-    if (auto* cmd_new = app.get_subcommand(subcmd_new); cmd_new != nullptr && cmd_new->parsed()) {
-        if (CLI::Option* opt = cmd_new->get_option(opt_message_short); *opt) {
-            // std::cout << "New subcommand: -m provided\n";
-            // std::string message = opt->as<std::string>();
-            // std::cout << "Message: " << message << "\n";
-        }
-    }
+    if (auto* cmd = app.get_subcommand(subcmd_new); *cmd)
+        return tt_cmd_new(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_log); *cmd)
+        return tt_cmd_log(tt, *cmd);
 }
 
 } // namespace
@@ -96,27 +119,26 @@ int main(int argc, char* argv[])
     /**
      * Init subcommand.
      */
-    auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
-    app.require_subcommand();
+    [[maybe_unused]] auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
 
     /**
      * New subcommand.
      */
     auto* cmd_new = app.add_subcommand(subcmd_new, "Creates new task.");
-    app.require_subcommand();
-
     cmd_new->add_option(opt_message, "Message that will be written to the task.");
+    cmd_new->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+
+    /**
+     * Log subcommand.
+     */
+    [[maybe_unused]] auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all tasks.");
+
+    app.require_subcommand();
 
     CLI11_PARSE(app, argc, argv);
 
-    if (*cmd_init)
-        std::cout << "init subcommand\n";
-
-    if (*cmd_new)
-        std::cout << "new subcommand\n";
-
     try {
-        it_main(app);
+        tt_main(app);
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -126,4 +148,5 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-// NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance)
+// NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
+// readability-avoid-return-with-void-value)
