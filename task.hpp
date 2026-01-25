@@ -172,6 +172,22 @@ public:
 
     void set_desc(std::string desc) { m_desc = std::move(desc); }
 
+    void roll_status()
+    {
+        if (status() == Status::done)
+            throw std::runtime_error{"Cannot roll task with status done."};
+
+        m_status = as<Status>(as_num(m_status) + 1);
+    }
+
+    void rollback_status()
+    {
+        if (status() == Status::not_started)
+            throw std::runtime_error{"Cannot rollback task with status not started."};
+
+        m_status = as<Status>(as_num(m_status) - 1);
+    }
+
     [[nodiscard]] std::string short_desc() const noexcept
     {
         size_t start = 0;
@@ -323,6 +339,20 @@ public:
     void in_progress_task(ID id) { change_task_status(id, Status::in_progress); }
 
     void resolve_task(ID id) { change_task_status(id, Status::done); }
+
+    void roll(ID id)
+    {
+        Task t{get_task(id)};
+        t.roll_status();
+        save_task(t);
+    }
+
+    void rollback(ID id)
+    {
+        Task t{get_task(id)};
+        t.rollback_status();
+        save_task(t);
+    }
 
 private:
     static std::ifstream open_md_read()

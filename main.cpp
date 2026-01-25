@@ -24,10 +24,12 @@
 
 const std::string version = "0.0.1"; // NOLINT
 
-const std::string subcmd_init = "init"; // NOLINT
-const std::string subcmd_new = "new";   // NOLINT
-const std::string subcmd_log = "log";   // NOLINT
-const std::string subcmd_show = "show"; // NOLINT
+const std::string subcmd_init = "init";         // NOLINT
+const std::string subcmd_new = "new";           // NOLINT
+const std::string subcmd_log = "log";           // NOLINT
+const std::string subcmd_show = "show";         // NOLINT
+const std::string subcmd_roll = "roll";         // NOLINT
+const std::string subcmd_rollback = "rollback"; // NOLINT
 
 const std::string req_id = "id";
 const std::string opt_message = "-m,--message"; // NOLINT
@@ -97,6 +99,18 @@ void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
     std::cout << tt.get_task(id).for_show();
 }
 
+void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
+{
+    ID id = as<ID>(cmd_show.get_option(req_id)->as<u64>());
+    tt.roll(id);
+}
+
+void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
+{
+    ID id = as<ID>(cmd_show.get_option(req_id)->as<u64>());
+    tt.rollback(id);
+}
+
 void tt_main(const CLI::App& app)
 {
     if (auto* init = app.get_subcommand(subcmd_init); init != nullptr && init->parsed())
@@ -112,6 +126,12 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_show); *cmd)
         return tt_cmd_show(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_roll); *cmd)
+        return tt_cmd_roll(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_rollback); *cmd)
+        return tt_cmd_rollback(tt, *cmd);
 }
 
 } // namespace
@@ -148,6 +168,19 @@ int main(int argc, char* argv[])
      */
     [[maybe_unused]] auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
     cmd_show->add_option(req_id, "Task id.")->required(true);
+
+    /**
+     * Roll subcommand.
+     */
+    [[maybe_unused]] auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
+    cmd_roll->add_option(req_id, "Task id.")->required(true);
+
+    /**
+     * Rollback subcommand.
+     */
+    [[maybe_unused]] auto* cmd_rollback =
+        app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
+    cmd_rollback->add_option(req_id, "Task id.")->required(true);
 
     app.require_subcommand();
 
