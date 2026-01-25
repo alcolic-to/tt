@@ -59,33 +59,17 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
         std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
 }
 
+enum class ID : u64 {};
 enum class Type : u8 { task = 0, bug = 1, feature = 2 };
 enum class Status : u8 { not_started = 0, in_prograss = 1, done = 2 };
 
-inline std::string as_string(Type t)
-{
-    switch (t) { // clang-format off
-    case Type::task:    return "task";
-    case Type::bug:     return "bug";
-    case Type::feature: return "feature";
-    default:            return "invalid";
-    } // clang-format on
-}
-
-inline std::string as_string(Status s)
-{
-    switch (s) { // clang-format off
-    case Status::not_started: return "not started";
-    case Status::in_prograss: return "in progress";
-    case Status::done:        return "done";
-    default:                  return "invalid";
-    } // clang-format on
-}
-
 template<class T>
-inline T as(u64 value)
+constexpr T as(u64 value)
 {
-    if constexpr (std::is_same_v<T, Type>) {
+    if constexpr (std::is_same_v<T, ID>) {
+        return ID(value);
+    }
+    else if constexpr (std::is_same_v<T, Type>) {
         if (value > u64(Type::feature))
             throw std::runtime_error{"Invalid type."};
 
@@ -107,71 +91,64 @@ u64 as_num(T v)
     return static_cast<u64>(v);
 }
 
-inline std::ofstream& operator<<(std::ofstream& ofs, Type t)
+inline std::string as_string(ID id)
 {
-    ofs << as_num(t);
-    return ofs;
+    return std::to_string(as_num(id));
 }
 
-inline std::stringstream& operator<<(std::stringstream& os, Type t)
+inline std::string as_string(Type t)
 {
-    os << as_string(t);
-    return os;
+    switch (t) { // clang-format off
+    case Type::task:    return "task";
+    case Type::bug:     return "bug";
+    case Type::feature: return "feature";
+    default:            return "invalid";
+    } // clang-format on
 }
 
-inline std::ifstream& operator>>(std::ifstream& os, Type& type)
+inline std::string as_string(Status s)
 {
-    u64 read_t = 0;
-    os >> read_t;
-    type = as<Type>(read_t);
-
-    return os;
-}
-
-inline std::ofstream& operator<<(std::ofstream& os, Status s)
-{
-    os << as_num(s);
-    return os;
-}
-
-inline std::stringstream& operator<<(std::stringstream& os, Status s)
-{
-    os << as_string(s);
-    return os;
-}
-
-inline std::ifstream& operator>>(std::ifstream& os, Status& s)
-{
-    u64 read_s = 0;
-    os >> read_s;
-    s = as<Status>(read_s);
-
-    return os;
+    switch (s) { // clang-format off
+    case Status::not_started: return "not started";
+    case Status::in_prograss: return "in progress";
+    case Status::done:        return "done";
+    default:                  return "invalid";
+    } // clang-format on
 }
 
 struct MD {
-    u64 m_id;
+    ID m_id;
+
+    ID next_id()
+    {
+        ID next = m_id;
+        m_id = as<ID>(as_num(m_id) + 1);
+        return next;
+    }
 };
 
-static const MD initial_md = {
-    .m_id = 1,
+static constexpr MD initial_md = {
+    .m_id = as<ID>(1),
 };
 
-inline std::ofstream& operator<<(std::ofstream& os, const MD& md)
+inline MD md_from_fstream(std::ifstream& ifs)
 {
-    os << as_num(md.m_id);
-    return os;
+    u64 n{};
+    ifs >> n;
+
+    return MD{.m_id = as<ID>(n)};
 }
 
-inline std::ifstream& operator>>(std::ifstream& os, MD& md)
+inline void md_to_fstream(std::ofstream& ofs, const MD& md)
 {
-    os >> md.m_id;
-    return os;
+    ofs << as_num(md.m_id);
 }
 
 class Task {
+    friend inline std::ifstream& operator>>(std::ifstream& ifs, Task& task);
+
 public:
-    Task(u64 id, Type type, Status status, std::string desc)
+    Task(ID id, Type type, Status status, std::string desc)
         : m_id{id}
         , m_type{type}
         , m_status{status}
@@ -179,7 +156,7 @@ public:
     {
     }
 
-    [[nodiscard]] u64 id() const noexcept { return m_id; }
+    [[nodiscard]] ID id() const noexcept { return m_id; }
 
     [[nodiscard]] Type type() const noexcept { return m_type; }
 
@@ -187,7 +164,9 @@ public:
 
     [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
-    [[nodiscard]] std::string short_decs() const noexcept
+    [[nodiscard]] usize desc_size() const noexcept { return m_desc.size(); }
+
+    [[nodiscard]] std::string short_desc() const noexcept
     {
         size_t start = 0;
         while (start < m_desc.size() && std::isspace(m_desc[start]))
@@ -198,61 +177,65 @@ public:
 
     [[nodiscard]] std::string for_log() const noexcept
     {
-        return std::format("ID {:<5} T {:<7} S {:<11} -> {}", id(), as_string(type()),
-                           as_string(status()), short_decs());
+        return std::format("ID {:<5} T {:<7} S {:<11} -> {}", as_string(id()), as_string(type()),
+                           as_string(status()), short_desc());
     }
 
-    [[nodiscard]] usize text_size() const noexcept { return m_desc.size(); }
-
-    static Task from_fstream(std::ifstream& ifs)
+    [[nodiscard]] std::string for_show() const noexcept
     {
-        auto check = [](bool cond) {
-            if (!cond)
-                throw std::runtime_error{"Bad task format."};
-        };
-
-        u64 id{};
-        Type type{};
-        Status status{};
-        std::string token;
-
-        ifs >> token >> std::skipws;
-        check(token == "ID");
-        ifs >> id;
-
-        ifs >> token >> std::skipws;
-        check(token == "T");
-        ifs >> type;
-
-        ifs >> token >> std::skipws;
-        check(token == "S");
-        ifs >> status;
-
-        ifs >> std::skipws;
-        std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
-
-        return Task{id, type, status, text};
+        return std::format("ID {}\nT {}\nS {}\n\n{}", as_string(id()), as_string(type()),
+                           as_string(status()), desc());
     }
 
 private:
-    u64 m_id;
+    ID m_id;
     Type m_type;
     Status m_status;
     std::string m_desc;
 };
 
-inline std::ofstream& operator<<(std::ofstream& ofs, const Task& task)
+static void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
     ofs << "ID ";
-    ofs << task.id() << "\n";
+    ofs << as_num(task.id()) << "\n";
     ofs << "T ";
-    ofs << task.type() << "\n";
+    ofs << as_num(task.type()) << "\n";
     ofs << "S ";
-    ofs << task.status() << "\n";
+    ofs << as_num(task.status()) << "\n";
     ofs << "\n";
     ofs << task.desc() << "\n";
+}
 
-    return ofs;
+static Task task_from_fstream(std::ifstream& ifs)
+{
+    auto check = [](bool cond) {
+        if (!cond)
+            throw std::runtime_error{"Bad task format."};
+    };
+
+    ID id{};
+    Type type{};
+    Status status{};
+
+    u64 n{};
+    std::string token;
+
+    ifs >> token;
+    check(token == "ID");
+    ifs >> n, id = as<ID>(n);
+
+    ifs >> token;
+    check(token == "T");
+    ifs >> n, type = as<Type>(n);
+
+    ifs >> token;
+    check(token == "S");
+    ifs >> n, status = as<Status>(n);
+
+    ifs.get(), ifs.get(); // skip \n\n
+    std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
+
+    return Task{id, type, status, std::move(text)};
 }
 
 class TaskTracker {
@@ -268,7 +251,7 @@ public:
     {
         try {
             auto md_stream{open_md_write()};
-            md_stream << m_md;
+            md_to_fstream(md_stream, m_md);
         }
         catch (const std::exception& ex) {
             std::cout << "Failed to write new md: " << ex.what() << "\n";
@@ -283,10 +266,10 @@ public:
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_dir);
         std::ofstream mdfs{md_file};
-        mdfs << initial_md;
+        md_to_fstream(mdfs, initial_md);
     }
 
-    static std::string new_task_path(u64 id) { return tasks_dir + path_sep + std::to_string(id); }
+    static std::string new_task_path(ID id) { return tasks_dir + path_sep + as_string(id); }
 
     static std::vector<Task> all_tasks()
     {
@@ -294,17 +277,26 @@ public:
         for (const auto& entry : fs::recursive_directory_iterator{tasks_dir}) {
             // log(entry.path());
             std::ifstream is{entry.path()};
-            tasks.emplace_back(Task::from_fstream(is));
+            tasks.emplace_back(task_from_fstream(is));
         }
 
         return tasks;
     }
 
+    static Task get_task(u64 id)
+    {
+        std::ifstream ifs{tasks_dir + path_sep + std::to_string(id)};
+        if (!ifs)
+            throw std::runtime_error{std::format("Task {} does not exist.", id)};
+
+        return task_from_fstream(ifs);
+    }
+
     void new_task(Type type, std::string desc)
     {
-        u64 id = next_id();
+        ID id = next_id();
         std::ofstream file{new_task_path(id)};
-        file << Task{id, type, Status::not_started, std::move(desc)};
+        task_to_fstream(file, Task{id, type, Status::not_started, std::move(desc)});
     }
 
     void new_task(std::string desc) { new_task(Type::task, std::move(desc)); }
@@ -330,12 +322,10 @@ private:
     static MD read_md()
     {
         std::ifstream md_stream{open_md_read()};
-        MD md{};
-        md_stream >> md;
-        return md;
+        return md_from_fstream(md_stream);
     }
 
-    u64 next_id() { return m_md.m_id++; }
+    ID next_id() { return m_md.next_id(); }
 
 private: // NOLINT
     MD m_md;

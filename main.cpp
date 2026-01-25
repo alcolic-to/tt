@@ -33,14 +33,26 @@ namespace {
 
 int test_main()
 {
-    TaskTracker tt;
+    try {
+        TaskTracker tt;
 
-    for (u64 i = 0; i < 1024 * 10; ++i)
-        tt.new_task(Type::task, std::format("This is {} task.", i));
+        // for (u64 i = 0; i < 10; ++i)
+        //     tt.new_task(Type::task, std::format("This is {} task.", i));
 
-    auto all = TaskTracker::all_tasks();
-    for (const auto& task : all)
-        std::cout << task.for_log() << "\n";
+        auto all = TaskTracker::all_tasks();
+        for (const auto& task : all)
+            std::cout << task.for_log() << "\n";
+
+        // Task t1{TaskTracker::get_task(1)};
+        // std::cout << t1.for_show() << "\n";
+
+        // Task t2{TaskTracker::get_task(20)};
+        // std::cout << t2.for_log() << "\n";
+    }
+    catch (const std::exception& ex) {
+        std::cout << ex.what() << "\n";
+        return 1;
+    }
 
     return 0;
 }
