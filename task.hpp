@@ -18,16 +18,33 @@
 #ifndef TASK_HPP
 #define TASK_HPP
 
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <vector>
 
 #include "types.hpp"
+#include "util.hpp"
+
+using SystemClock = system_clock;
+using SystemTimePoint = std::chrono::time_point<SystemClock>;
+
+inline SystemTimePoint now_sys() noexcept
+{
+    return SystemClock::now();
+}
+
+inline u64 now_sys_ns() noexcept
+{
+    return now_sys().time_since_epoch().count();
+}
 
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-convert-member-functions-to-static)
@@ -40,9 +57,10 @@ constexpr char path_sep = fs::path::preferred_separator;
 const inline std::string path_sep_str = std::string{path_sep}; // NOLINT
 
 // clang-format off
-inline const std::string main_dir = ".tt";                          /* .tt/       */ // NOLINT
-inline const std::string tasks_dir = main_dir + path_sep + "tasks"; /* .tt/tasks/ */ // NOLINT
-inline const std::string md_file = main_dir + path_sep + "md";      /* .tt/md     */ // NOLINT
+inline const std::string main_dir = ".tt";                            /* .tt/         */ // NOLINT
+inline const std::string tasks_dir = main_dir + path_sep + "tasks";   /* .tt/tasks/   */ // NOLINT
+inline const std::string md_file = main_dir + path_sep + "md";        /* .tt/md       */ // NOLINT
+inline const std::string msg_file = main_dir + path_sep + "desc_msg"; /* .tt/desc_msg */ // NOLINT
 // clang-format on
 
 template<class T>
@@ -86,7 +104,7 @@ constexpr T as(u64 value)
 }
 
 template<class T>
-u64 as_num(T v)
+u64 as_num(T v) noexcept
 {
     return static_cast<u64>(v);
 }
@@ -199,7 +217,7 @@ public:
 
     [[nodiscard]] std::string for_log() const noexcept
     {
-        return std::format("ID {:<5} T {:<7} S {:<11} -> {}", as_string(id()), as_string(type()),
+        return std::format("{} {:<7} {:<11} -> {}", as_string(id()), as_string(type()),
                            as_string(status()), short_desc());
     }
 
@@ -208,6 +226,8 @@ public:
         return std::format("ID {}\nT {}\nS {}\n\n{}", as_string(id()), as_string(type()),
                            as_string(status()), desc());
     }
+
+    auto operator<=>(const Task& other) const noexcept = default;
 
 private:
     ID m_id;
@@ -218,43 +238,23 @@ private:
 
 static void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
-    ofs << "ID ";
     ofs << as_num(task.id()) << "\n";
-    ofs << "T ";
     ofs << as_num(task.type()) << "\n";
-    ofs << "S ";
     ofs << as_num(task.status()) << "\n";
-    ofs << "\n";
     ofs << task.desc() << "\n";
 }
 
 static Task task_from_fstream(std::ifstream& ifs)
 {
-    auto check = [](bool cond) {
-        if (!cond)
-            throw std::runtime_error{"Bad task format."};
-    };
-
     ID id{};
     Type type{};
     Status status{};
 
     u64 n{};
-    std::string token;
-
-    ifs >> token;
-    check(token == "ID");
     ifs >> n, id = as<ID>(n);
-
-    ifs >> token;
-    check(token == "T");
     ifs >> n, type = as<Type>(n);
-
-    ifs >> token;
-    check(token == "S");
     ifs >> n, status = as<Status>(n);
 
-    ifs.get(), ifs.get(); // skip \n\n
     std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
 
     return Task{id, type, status, std::move(text)};
@@ -296,11 +296,15 @@ public:
     std::vector<Task> all_tasks()
     {
         std::vector<Task> tasks;
+        tasks.reserve(1024);
+
         for (const auto& entry : fs::recursive_directory_iterator{tasks_dir}) {
             // log(entry.path());
             std::ifstream is{entry.path()};
             tasks.emplace_back(task_from_fstream(is));
         }
+
+        std::ranges::sort(tasks);
 
         return tasks;
     }
@@ -375,7 +379,8 @@ private:
         return md_from_fstream(md_stream);
     }
 
-    ID next_id() { return m_md.next_id(); }
+    // Task id is task creation time (system time point) in nanoseconds.
+    ID next_id() { return as<ID>(now_sys_ns()); }
 
 private: // NOLINT
     MD m_md;

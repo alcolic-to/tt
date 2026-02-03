@@ -13,8 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <cstdlib>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 
 #include "cli11/CLI11.hpp"
 #include "task.hpp"
@@ -37,6 +42,12 @@ const std::string opt_message_short = "-m";     // NOLINT
 const std::string opt_type = "-t,--type";       // NOLINT
 const std::string opt_type_short = "-t";        // NOLINT
 
+const std::string default_editor = "vim";
+const std::string default_desc_message =
+    "\n"
+    "# Please enter task description. Lines starting with '#' will be ignored and \n"
+    "# empty description aborts task creation.";
+
 namespace {
 
 int test_main() // NOLINT
@@ -44,26 +55,12 @@ int test_main() // NOLINT
     try {
         TaskTracker tt;
 
-        // for (u64 i = 0; i < 10; ++i)
+        // for (u64 i = 0; i < 1000; ++i)
         //     tt.new_task(Type::task, std::format("This is {} task.", i));
-
-        // tt.change_task_status(ID(2), Status::in_progress);
 
         auto all = tt.all_tasks();
         for (const auto& task : all)
             std::cout << task.for_log() << "\n";
-
-        // tt.resolve_task(ID(1));
-
-        // all = tt.all_tasks();
-        // for (const auto& task : all)
-        //     std::cout << task.for_log() << "\n";
-
-        // Task t1{TaskTracker::get_task(1)};
-        // std::cout << t1.for_show() << "\n";
-
-        // Task t2{TaskTracker::get_task(20)};
-        // std::cout << t2.for_log() << "\n";
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -71,6 +68,28 @@ int test_main() // NOLINT
     }
 
     return 0;
+}
+
+bool spaces_only(const std::string& s)
+{
+    return std::ranges::all_of(s, [](u8 c) { return std::isspace(c); });
+}
+
+std::string desc_from_editor()
+{
+    std::ofstream{msg_file, std::ios::trunc} << default_desc_message;
+    std::system(std::string{default_editor + " " + msg_file}.c_str());
+
+    std::stringstream ss;
+    std::string line;
+
+    for (std::ifstream in{msg_file}; std::getline(in, line);)
+        if (!line.starts_with("#"))
+            ss << line << '\n';
+
+    std::filesystem::remove(msg_file);
+
+    return ss.str();
 }
 
 void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
@@ -83,6 +102,12 @@ void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
 
     if (CLI::Option* opt = cmd_new.get_option(opt_type_short); *opt)
         type = as<Type>(opt->as<u64>());
+
+    if (desc.empty())
+        desc = desc_from_editor();
+
+    if (spaces_only(desc))
+        throw std::runtime_error{"Empty message. Aborting task creation."};
 
     tt.new_task(type, std::move(desc));
 }
@@ -113,7 +138,7 @@ void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 
 void tt_main(const CLI::App& app)
 {
-    if (auto* init = app.get_subcommand(subcmd_init); init != nullptr && init->parsed())
+    if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
         return TaskTracker::cmd_init();
 
     TaskTracker tt;
