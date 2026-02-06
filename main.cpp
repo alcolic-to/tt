@@ -89,7 +89,6 @@ std::string desc_from_editor()
             ss << line << '\n';
 
     std::filesystem::remove(msg_file);
-
     return ss.str();
 }
 
@@ -194,20 +193,19 @@ int main(int argc, char* argv[])
     /**
      * Show subcommand.
      */
-    [[maybe_unused]] auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
+    auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
     cmd_show->add_option(req_id, "Task id.")->required(true);
 
     /**
      * Roll subcommand.
      */
-    [[maybe_unused]] auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
+    auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
     cmd_roll->add_option(req_id, "Task id.")->required(true);
 
     /**
      * Rollback subcommand.
      */
-    [[maybe_unused]] auto* cmd_rollback =
-        app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
+    auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
     cmd_rollback->add_option(req_id, "Task id.")->required(true);
 
     app.require_subcommand();
