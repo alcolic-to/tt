@@ -117,9 +117,9 @@ inline std::string as_string(ID id)
 inline std::string as_string(Type t)
 {
     switch (t) { // clang-format off
-    case Type::task:    return "task";
-    case Type::bug:     return "bug";
-    case Type::feature: return "feature";
+    case Type::task:    return "T";
+    case Type::bug:     return "B";
+    case Type::feature: return "F";
     default:            return "invalid";
     } // clang-format on
 }
@@ -127,9 +127,9 @@ inline std::string as_string(Type t)
 inline std::string as_string(Status s)
 {
     switch (s) { // clang-format off
-    case Status::not_started: return "not started";
-    case Status::in_progress: return "in progress";
-    case Status::done:        return "done";
+    case Status::not_started: return "N";
+    case Status::in_progress: return "I";
+    case Status::done:        return "R";
     default:                  return "invalid";
     } // clang-format on
 }
@@ -217,8 +217,8 @@ public:
 
     [[nodiscard]] std::string for_log() const noexcept
     {
-        return std::format("{} {:<7} {:<11} -> {}", as_string(id()), as_string(type()),
-                           as_string(status()), short_desc());
+        return std::format("{} {} {} {}", as_string(id()), as_string(type()), as_string(status()),
+                           short_desc());
     }
 
     [[nodiscard]] std::string for_show() const noexcept
