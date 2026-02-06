@@ -109,27 +109,35 @@ u64 as_num(T v) noexcept
     return static_cast<u64>(v);
 }
 
+/**
+ * Types as strings.
+ */
+
+enum class show { short_, long_ };
+
 inline std::string as_string(ID id)
 {
     return std::to_string(as_num(id));
 }
 
+template<show sh = show::long_>
 inline std::string as_string(Type t)
 {
     switch (t) { // clang-format off
-    case Type::task:    return "T";
-    case Type::bug:     return "B";
-    case Type::feature: return "F";
+    case Type::task:    return sh == show::short_ ? "T" : "Task";
+    case Type::bug:     return sh == show::short_ ? "B" : "Bug";
+    case Type::feature: return sh == show::short_ ? "F" : "Feature";
     default:            return "invalid";
     } // clang-format on
 }
 
+template<show sh = show::long_>
 inline std::string as_string(Status s)
 {
     switch (s) { // clang-format off
-    case Status::not_started: return "N";
-    case Status::in_progress: return "I";
-    case Status::done:        return "R";
+    case Status::not_started: return sh == show::short_ ? "N" : "Not started";
+    case Status::in_progress: return sh == show::short_ ? "I" : "In progress";
+    case Status::done:        return sh == show::short_ ? "R" : "Resolved";
     default:                  return "invalid";
     } // clang-format on
 }
@@ -217,14 +225,14 @@ public:
 
     [[nodiscard]] std::string for_log() const noexcept
     {
-        return std::format("{} {} {} {}", as_string(id()), as_string(type()), as_string(status()),
-                           short_desc());
+        return std::format("{} {} {} {}", as_string(id()), as_string<show::short_>(type()),
+                           as_string<show::short_>(status()), short_desc());
     }
 
     [[nodiscard]] std::string for_show() const noexcept
     {
-        return std::format("ID {}\nT {}\nS {}\n\n{}", as_string(id()), as_string(type()),
-                           as_string(status()), desc());
+        return std::format("{}\n{}\n{}\n\n{}", as_string(id()), as_string<show::long_>(type()),
+                           as_string<show::long_>(status()), desc());
     }
 
     auto operator<=>(const Task& other) const noexcept = default;
@@ -251,9 +259,9 @@ static Task task_from_fstream(std::ifstream& ifs)
     Status status{};
 
     u64 n{};
-    ifs >> n, id = as<ID>(n);
-    ifs >> n, type = as<Type>(n);
-    ifs >> n, status = as<Status>(n);
+    ifs >> n, id = as<ID>(n), ifs >> std::ws;
+    ifs >> n, type = as<Type>(n), ifs >> std::ws;
+    ifs >> n, status = as<Status>(n), ifs >> std::ws;
 
     std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
 

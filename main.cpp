@@ -20,6 +20,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <util.hpp>
 
 #include "cli11/CLI11.hpp"
 #include "task.hpp"
@@ -106,8 +107,10 @@ void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
     if (desc.empty())
         desc = desc_from_editor();
 
-    if (spaces_only(desc))
-        throw std::runtime_error{"Empty message. Aborting task creation."};
+    trim_left(desc), trim_right(desc);
+
+    if (desc.empty() || spaces_only(desc))
+        throw std::runtime_error{"Empty message. Aborting creation."};
 
     tt.new_task(type, std::move(desc));
 }
