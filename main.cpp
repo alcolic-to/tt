@@ -31,7 +31,7 @@
 const std::string version = "0.0.1"; // NOLINT
 
 const std::string subcmd_init = "init";         // NOLINT
-const std::string subcmd_new = "new";           // NOLINT
+const std::string subcmd_push = "push";         // NOLINT
 const std::string subcmd_log = "log";           // NOLINT
 const std::string subcmd_show = "show";         // NOLINT
 const std::string subcmd_roll = "roll";         // NOLINT
@@ -95,7 +95,7 @@ std::string desc_from_editor()
     return ss.str();
 }
 
-void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
+void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_new)
 {
     std::string desc;
     Type type{Type::task};
@@ -155,8 +155,8 @@ void tt_main(const CLI::App& app)
 
     TaskTracker tt;
 
-    if (auto* cmd = app.get_subcommand(subcmd_new); *cmd)
-        return tt_cmd_new(tt, *cmd);
+    if (auto* cmd = app.get_subcommand(subcmd_push); *cmd)
+        return tt_cmd_push(tt, *cmd);
 
     if (auto* cmd = app.get_subcommand(subcmd_log); *cmd)
         return tt_cmd_log(tt, *cmd);
@@ -189,11 +189,11 @@ int main(int argc, char* argv[])
     [[maybe_unused]] auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
 
     /**
-     * New subcommand.
+     * Push subcommand.
      */
-    auto* cmd_new = app.add_subcommand(subcmd_new, "Creates new task.");
-    cmd_new->add_option(opt_message, "Message that will be written to the task.");
-    cmd_new->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+    auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
+    cmd_push->add_option(opt_message, "Message that will be written to the task.");
+    cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
 
     /**
      * Log subcommand.
