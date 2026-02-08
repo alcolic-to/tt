@@ -42,6 +42,8 @@ const std::string opt_message = "-m,--message"; // NOLINT
 const std::string opt_message_short = "-m";     // NOLINT
 const std::string opt_type = "-t,--type";       // NOLINT
 const std::string opt_type_short = "-t";        // NOLINT
+const std::string opt_all = "-a,--all";         // NOLINT
+const std::string opt_all_short = "-a";         // NOLINT
 
 const std::string default_editor = "vim";
 const std::string default_desc_message =
@@ -58,6 +60,7 @@ int test_main() // NOLINT
 
         // for (u64 i = 0; i < 1000; ++i)
         //     tt.new_task(Type::task, std::format("This is {} task.", i));
+        // auto pred = [](const Task& t) { return true; };
 
         auto all = tt.all_tasks();
         for (const auto& task : all)
@@ -116,7 +119,14 @@ void tt_cmd_new(TaskTracker& tt, CLI::App& cmd_new)
 
 void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
 {
-    for (const Task& task : tt.all_tasks())
+    auto pred = [&]() -> std::function<bool(const Task&)> {
+        if (CLI::Option* opt = cmd_log.get_option(opt_all_short); *opt)
+            return [](const Task&) { return true; };
+
+        return [](const Task& t) { return t.status() != Status::done; };
+    }();
+
+    for (const Task& task : tt.all_tasks(pred))
         std::cout << task.for_log() << "\n";
 }
 
@@ -188,7 +198,8 @@ int main(int argc, char* argv[])
     /**
      * Log subcommand.
      */
-    [[maybe_unused]] auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all tasks.");
+    auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all unresolved tasks.");
+    cmd_log->add_flag(opt_all, "Logs all tasks.");
 
     /**
      * Show subcommand.

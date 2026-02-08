@@ -22,6 +22,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <ios>
 #include <iostream>
 #include <ranges>
@@ -235,6 +236,9 @@ public:
                            as_string<show::long_>(status()), desc());
     }
 
+    /**
+     * Spaceship operator first compares id, then type etc.
+     */
     auto operator<=>(const Task& other) const noexcept = default;
 
 private:
@@ -301,18 +305,31 @@ public:
 
     std::string task_path(ID id) { return tasks_dir + path_sep + as_string(id); }
 
-    std::vector<Task> all_tasks()
+    /**
+     * Returns all tasks in descending order.
+     */
+    std::vector<Task> all_tasks() const noexcept
+    {
+        return all_tasks([](const Task& t) { return true; });
+    }
+
+    /**
+     * Returns all tasks in descending order where tasks match predicate.
+     */
+    template<typename Pred>
+    std::vector<Task> all_tasks(Pred pred) const noexcept
     {
         std::vector<Task> tasks;
         tasks.reserve(1024);
 
-        for (const auto& entry : fs::recursive_directory_iterator{tasks_dir}) {
-            // log(entry.path());
+        for (const auto& entry : fs::directory_iterator{tasks_dir}) {
             std::ifstream is{entry.path()};
-            tasks.emplace_back(task_from_fstream(is));
+            Task task{task_from_fstream(is)};
+            if (pred(task))
+                tasks.emplace_back(task);
         }
 
-        std::ranges::sort(tasks);
+        std::ranges::sort(tasks, std::ranges::greater());
 
         return tasks;
     }
