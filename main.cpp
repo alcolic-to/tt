@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <util.hpp>
 
@@ -32,12 +33,16 @@ const std::string version = "0.0.1"; // NOLINT
 
 const std::string subcmd_init = "init";         // NOLINT
 const std::string subcmd_push = "push";         // NOLINT
+const std::string subcmd_pop = "pop";           // NOLINT
 const std::string subcmd_log = "log";           // NOLINT
 const std::string subcmd_show = "show";         // NOLINT
 const std::string subcmd_roll = "roll";         // NOLINT
 const std::string subcmd_rollback = "rollback"; // NOLINT
 
 const std::string req_id = "id";
+
+const std::string opt_offset = "offset";
+const std::string opt_id = "--id";
 const std::string opt_message = "-m,--message"; // NOLINT
 const std::string opt_message_short = "-m";     // NOLINT
 const std::string opt_type = "-t,--type";       // NOLINT
@@ -95,15 +100,15 @@ std::string desc_from_editor()
     return ss.str();
 }
 
-void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_new)
+void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
 {
     std::string desc;
     Type type{Type::task};
 
-    if (CLI::Option* opt = cmd_new.get_option(opt_message_short); *opt)
+    if (CLI::Option* opt = cmd_push.get_option(opt_message_short); *opt)
         desc = opt->as<std::string>();
 
-    if (CLI::Option* opt = cmd_new.get_option(opt_type_short); *opt)
+    if (CLI::Option* opt = cmd_push.get_option(opt_type_short); *opt)
         type = as<Type>(opt->as<u64>());
 
     if (desc.empty())
@@ -115,6 +120,30 @@ void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_new)
         throw std::runtime_error{"Empty message. Aborting creation."};
 
     tt.new_task(type, std::move(desc));
+}
+
+void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
+{
+    if (CLI::Option* opt = cmd_pop.get_option(opt_id); *opt) {
+        tt.resolve_task(as<ID>(opt->as<u64>()));
+        return;
+    }
+
+    std::vector<Task> tasks{tt.all_tasks_not_done()};
+    if (tasks.empty())
+        throw std::runtime_error{"No non-resolved tasks."};
+
+    u64 offset = 0;
+
+    if (CLI::Option* opt = cmd_pop.get_option(opt_offset); *opt)
+        offset = opt->as<u64>();
+
+    if (offset >= tasks.size())
+        throw std::runtime_error{"Offset to large."};
+
+    Task& t = tasks[offset];
+    t.set_status(Status::done);
+    tt.save_task(t);
 }
 
 void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
@@ -158,6 +187,9 @@ void tt_main(const CLI::App& app)
     if (auto* cmd = app.get_subcommand(subcmd_push); *cmd)
         return tt_cmd_push(tt, *cmd);
 
+    if (auto* cmd = app.get_subcommand(subcmd_pop); *cmd)
+        return tt_cmd_pop(tt, *cmd);
+
     if (auto* cmd = app.get_subcommand(subcmd_log); *cmd)
         return tt_cmd_log(tt, *cmd);
 
@@ -194,6 +226,13 @@ int main(int argc, char* argv[])
     auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
     cmd_push->add_option(opt_message, "Message that will be written to the task.");
     cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+
+    /**
+     * Pop subcommand.
+     */
+    auto* cmd_pop = app.add_subcommand(subcmd_pop, "Resolves task.")->alias("resolve");
+    cmd_pop->add_option(opt_offset, "Offset (zero based) from top non-resolved tasks.");
+    cmd_pop->add_option(opt_id, "Task id to pop (resolve).");
 
     /**
      * Log subcommand.

@@ -314,6 +314,14 @@ public:
     }
 
     /**
+     * Returns all tasks in descending order.
+     */
+    std::vector<Task> all_tasks_not_done() const noexcept
+    {
+        return all_tasks([](const Task& t) { return t.status() != Status::done; });
+    }
+
+    /**
      * Returns all tasks in descending order where tasks match predicate.
      */
     template<typename Pred>
@@ -324,8 +332,7 @@ public:
 
         for (const auto& entry : fs::directory_iterator{tasks_dir}) {
             std::ifstream is{entry.path()};
-            Task task{task_from_fstream(is)};
-            if (pred(task))
+            if (Task task{task_from_fstream(is)}; pred(task))
                 tasks.emplace_back(task);
         }
 
