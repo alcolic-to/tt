@@ -180,6 +180,8 @@ class Task {
     friend inline std::ifstream& operator>>(std::ifstream& ifs, Task& task);
 
 public:
+    Task() = default;
+
     Task(ID id, Type type, Status status, std::string desc)
         : m_id{id}
         , m_type{type}

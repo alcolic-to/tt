@@ -39,6 +39,7 @@ const std::string subcmd_log = "log";           // NOLINT
 const std::string subcmd_show = "show";         // NOLINT
 const std::string subcmd_roll = "roll";         // NOLINT
 const std::string subcmd_rollback = "rollback"; // NOLINT
+const std::string subcmd_amend = "amend";       // NOLINT
 
 // const std::string req_id = "id";
 
@@ -52,7 +53,7 @@ const std::string opt_all = "-a,--all";         // NOLINT
 const std::string opt_all_short = "-a";         // NOLINT
 
 const std::string default_editor = "vim";
-const std::string default_desc_message =
+const std::string default_editor_message =
     "\n"
     "# Please enter task description. Lines starting with '#' will be ignored and \n"
     "# empty description aborts task creation.";
@@ -94,9 +95,14 @@ bool spaces_only(const std::string& s)
     return std::ranges::all_of(s, [](u8 c) { return std::isspace(c); });
 }
 
-std::string desc_from_editor()
+/**
+ * Creates new file for message editing.
+ * It spawns editor and waits for user to exit. After that, message is read from file.
+ * You can provide additional message that will be writen before default editor message.
+ */
+std::string desc_from_editor(const std::string& msg = "")
 {
-    std::ofstream{msg_file, std::ios::trunc} << default_desc_message;
+    std::ofstream{msg_file, std::ios::trunc} << msg << default_editor_message;
     std::system(std::string{default_editor + " " + msg_file}.c_str());
 
     std::stringstream ss;
@@ -254,6 +260,41 @@ void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
     tt.rollback(t);
 }
 
+void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
+{
+    Task task;
+
+    if (CLI::Option* opt = cmd_amend.get_option(opt_id); *opt) {
+        task = tt.get_task(as<ID>(cmd_amend.get_option(opt_id)->as<u64>()));
+    }
+    else {
+        u64 offset = 0;
+        if (CLI::Option* opt = cmd_amend.get_option(opt_offset); *opt)
+            offset = opt->as<u64>();
+
+        task = tt.get_task(as<Offset>(offset));
+    }
+
+    if (CLI::Option* opt = cmd_amend.get_option(opt_type_short); *opt)
+        task.set_type(as<Type>(opt->as<u64>()));
+
+    std::string desc;
+
+    if (CLI::Option* opt = cmd_amend.get_option(opt_message_short); *opt)
+        desc = opt->as<std::string>();
+
+    if (desc.empty())
+        desc = desc_from_editor(task.desc());
+
+    trim_left(desc), trim_right(desc);
+
+    if (desc.empty() || spaces_only(desc))
+        throw std::runtime_error{"Empty message. Aborting amend."};
+
+    task.set_desc(std::move(desc));
+    tt.save_task(task);
+}
+
 void tt_main(const CLI::App& app)
 {
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
@@ -278,6 +319,9 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_rollback); *cmd)
         return tt_cmd_rollback(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_amend); *cmd)
+        return tt_cmd_amend(tt, *cmd);
 }
 
 } // namespace
@@ -337,6 +381,15 @@ int main(int argc, char* argv[])
     auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
     cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
     cmd_rollback->add_option(opt_id, "Task id.");
+
+    /**
+     * Amend subcommand.
+     */
+    auto* cmd_amend = app.add_subcommand(subcmd_amend, "Replaces tasks message.");
+    cmd_amend->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_amend->add_option(opt_id, "Task id.");
+    cmd_amend->add_option(opt_message, "Message that will be written to the task.");
+    cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
 
     app.require_subcommand();
 
