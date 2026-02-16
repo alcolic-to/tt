@@ -24,6 +24,7 @@
 #include <util.hpp>
 
 #include "cli11/CLI11.hpp"
+#include "console.hpp"
 #include "task.hpp"
 
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
@@ -61,15 +62,24 @@ namespace {
 int test_main() // NOLINT
 {
     try {
-        TaskTracker tt;
+        // TaskTracker tt;
+
+        // std::cout << esc << "38;5;2m" << "This should be green\n"
+        //           << esc << "39m"
+        //           << "And this should be default\n";
+
+        // println<green>("Some green text");
+        // println<red>("Some red text");
+        // println<yellow>("Some yellow text");
+        // println("Some normal text");
 
         // for (u64 i = 0; i < 1000; ++i)
         //     tt.new_task(Type::task, std::format("This is {} task.", i));
         // auto pred = [](const Task& t) { return true; };
 
-        auto all = tt.all_tasks();
-        for (const auto& task : all)
-            std::cout << task.for_log() << "\n";
+        // auto all = tt.all_tasks();
+        // for (const auto& task : all)
+        //     std::cout << task.for_log() << "\n";
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -155,8 +165,19 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
         return [](const Task& t) { return t.status() != Status::done; };
     }();
 
-    for (const Task& task : tt.all_tasks(pred))
-        std::cout << task.for_log() << "\n";
+    for (const Task& task : tt.all_tasks(pred)) {
+        print<yellow>("{} ", as_string(task.id()));
+        print<high_blue>("{} ", as_string<show::short_>(task.type()));
+
+        switch (task.status()) { // clang-format off
+        case Status::not_started: print<high_gray>("{} ", as_string<show::short_>(task.status())); break;
+        case Status::in_progress: print<yellow>("{} ", as_string<show::short_>(task.status())); break;
+        case Status::done:        print<green>("{} ", as_string<show::short_>(task.status())); break;
+        default: throw std::runtime_error{"Invalid task status."};
+        } // clang-format on
+
+        print("{}\n", task.short_desc());
+    }
 }
 
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
