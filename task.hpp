@@ -315,7 +315,7 @@ public:
      */
     std::vector<Task> all_tasks() const noexcept
     {
-        return all_tasks([](const Task& t) { return true; });
+        return all_tasks_where([](const Task& t) { return true; });
     }
 
     /**
@@ -323,22 +323,23 @@ public:
      */
     std::vector<Task> all_tasks_not_done() const noexcept
     {
-        return all_tasks([](const Task& t) { return t.status() != Status::done; });
+        return all_tasks_where([](const Task& t) { return t.status() != Status::done; });
     }
 
     /**
      * Returns all tasks in descending order where tasks match predicate.
      */
     template<typename Pred>
-    std::vector<Task> all_tasks(Pred pred) const noexcept
+    std::vector<Task> all_tasks_where(Pred pred) const noexcept
     {
         std::vector<Task> tasks;
         tasks.reserve(1024);
 
         for (const auto& entry : fs::directory_iterator{tasks_dir}) {
-            std::ifstream is{entry.path()};
-            if (Task task{task_from_fstream(is)}; pred(task))
-                tasks.emplace_back(task);
+            std::ifstream ifs{entry.path()};
+            Task task{task_from_fstream(ifs)};
+            if (pred(task))
+                tasks.emplace_back(std::move(task));
         }
 
         std::ranges::sort(tasks, std::ranges::greater());
