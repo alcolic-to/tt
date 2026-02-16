@@ -166,24 +166,36 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
     }();
 
     for (const Task& task : tt.all_tasks(pred)) {
-        print<yellow>("{} ", as_string(task.id()));
-        print<high_blue>("{} ", as_string<show::short_>(task.type()));
+        print<yellow>("{} ", task.for_log_id());
+        print<high_blue>("{} ", task.for_log_type());
 
         switch (task.status()) { // clang-format off
-        case Status::not_started: print<high_gray>("{} ", as_string<show::short_>(task.status())); break;
-        case Status::in_progress: print<yellow>("{} ", as_string<show::short_>(task.status())); break;
-        case Status::done:        print<green>("{} ", as_string<show::short_>(task.status())); break;
+        case Status::not_started: print<high_gray>("{} ", task.for_log_status()); break;
+        case Status::in_progress: print<yellow>("{} ", task.for_log_status()); break;
+        case Status::done:        print<green>("{} ", task.for_log_status()); break;
         default: throw std::runtime_error{"Invalid task status."};
         } // clang-format on
 
-        print("{}\n", task.short_desc());
+        println("{}", task.for_log_desc());
     }
 }
 
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 {
     ID id = as<ID>(cmd_show.get_option(req_id)->as<u64>());
-    std::cout << tt.get_task(id).for_show();
+    Task task{tt.get_task(id)};
+
+    println<yellow>("{}", task.for_show_id());
+    println<high_blue>("{}", task.for_show_type());
+
+    switch (task.status()) { // clang-format off
+    case Status::not_started: println<high_gray>("{}", task.for_show_status()); break;
+    case Status::in_progress: println<yellow>("{}", task.for_show_status()); break;
+    case Status::done:        println<green>("{}", task.for_show_status()); break;
+    default: throw std::runtime_error{"Invalid task status."};
+    } // clang-format on
+
+    println("\n{}", task.for_show_desc());
 }
 
 void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)

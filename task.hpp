@@ -224,17 +224,21 @@ public:
         return m_desc.substr(start, m_desc.find('\n', start) - start);
     }
 
-    [[nodiscard]] std::string for_log() const noexcept
-    {
-        return std::format("{} {} {} {}", as_string(id()), as_string<show::short_>(type()),
-                           as_string<show::short_>(status()), short_desc());
-    }
+    // clang-format off
 
-    [[nodiscard]] std::string for_show() const noexcept
-    {
-        return std::format("{}\n{}\n{}\n\n{}", as_string(id()), as_string<show::long_>(type()),
-                           as_string<show::long_>(status()), desc());
-    }
+    [[nodiscard]] std::string for_log_id() const noexcept { return as_string(id()); }
+    [[nodiscard]] std::string for_log_type() const noexcept { return as_string<show::short_>(type()); }
+    [[nodiscard]] std::string for_log_status() const noexcept { return as_string<show::short_>(status()); }
+    [[nodiscard]] std::string for_log_desc() const noexcept { return short_desc(); }
+    [[nodiscard]] std::string for_log() const noexcept { return std::format("{} {} {} {}", for_log_id(), for_log_type(), for_log_status(), for_log_desc()); }
+
+    [[nodiscard]] std::string for_show_id() const noexcept { return as_string(id()); }
+    [[nodiscard]] std::string for_show_type() const noexcept { return as_string<show::long_>(type()); }
+    [[nodiscard]] std::string for_show_status() const noexcept { return as_string<show::long_>(status()); }
+    [[nodiscard]] std::string for_show_desc() const noexcept { return desc(); }
+    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n\n{}", for_show_id(), for_show_type(), for_show_status(), for_show_desc()); }
+
+    // clang-format on
 
     /**
      * Spaceship operator first compares id, then type etc.
@@ -268,6 +272,7 @@ static Task task_from_fstream(std::ifstream& ifs)
     ifs >> n, status = as<Status>(n), ifs >> std::ws;
 
     std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
+    text.pop_back(); // remove \n
 
     return Task{id, type, status, std::move(text)};
 }
