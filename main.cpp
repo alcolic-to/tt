@@ -40,7 +40,7 @@ const std::string subcmd_show = "show";         // NOLINT
 const std::string subcmd_roll = "roll";         // NOLINT
 const std::string subcmd_rollback = "rollback"; // NOLINT
 
-const std::string req_id = "id";
+// const std::string req_id = "id";
 
 const std::string opt_offset = "offset";
 const std::string opt_id = "--id";
@@ -156,8 +156,11 @@ void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
     tt.save_task(t);
 }
 
-void log_task(const Task& task)
+void log_task(const Task& task, u64 vid = -1)
 {
+    if (vid != -1)
+        print<yellow>("{:<3} ", vid);
+
     print<yellow>("{} ", task.for_log_id());
     print<high_blue>("{} ", task.for_log_type());
 
@@ -173,15 +176,23 @@ void log_task(const Task& task)
 
 void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
 {
+    bool opt_all = false;
+    if (CLI::Option* opt = cmd_log.get_option(opt_all_short); *opt)
+        opt_all = true;
+
     auto pred = [&]() -> std::function<bool(const Task&)> {
-        if (CLI::Option* opt = cmd_log.get_option(opt_all_short); *opt)
+        if (opt_all)
             return [](const Task&) { return true; };
 
         return [](const Task& t) { return t.status() != Status::done; };
     }();
 
+    u64 vid = 0;
     for (const Task& task : tt.all_tasks_where(pred))
-        log_task(task);
+        if (opt_all)
+            log_task(task);
+        else
+            log_task(task, vid++);
 }
 
 void show_task(const Task& task)
@@ -206,31 +217,41 @@ void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
         return;
     }
 
-    std::vector<Task> tasks{tt.all_tasks_not_done()};
-    if (tasks.empty())
-        throw std::runtime_error{"No non-resolved tasks."};
-
     u64 offset = 0;
-
     if (CLI::Option* opt = cmd_show.get_option(opt_offset); *opt)
         offset = opt->as<u64>();
 
-    if (offset >= tasks.size())
-        throw std::runtime_error{"Offset to large."};
-
-    show_task(tasks[offset]);
+    show_task(tt.get_task(as<Offset>(offset)));
 }
 
 void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_roll)
 {
-    ID id = as<ID>(cmd_roll.get_option(req_id)->as<u64>());
-    tt.roll(id);
+    if (CLI::Option* opt = cmd_roll.get_option(opt_id); *opt) {
+        tt.roll(as<ID>(cmd_roll.get_option(opt_id)->as<u64>()));
+        return;
+    }
+
+    u64 offset = 0;
+    if (CLI::Option* opt = cmd_roll.get_option(opt_offset); *opt)
+        offset = opt->as<u64>();
+
+    Task t{tt.get_task(as<Offset>(offset))};
+    tt.roll(t);
 }
 
 void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
 {
-    ID id = as<ID>(cmd_rollback.get_option(req_id)->as<u64>());
-    tt.rollback(id);
+    if (CLI::Option* opt = cmd_rollback.get_option(opt_id); *opt) {
+        tt.rollback(as<ID>(cmd_rollback.get_option(opt_id)->as<u64>()));
+        return;
+    }
+
+    u64 offset = 0;
+    if (CLI::Option* opt = cmd_rollback.get_option(opt_offset); *opt)
+        offset = opt->as<u64>();
+
+    Task t{tt.get_task(as<Offset>(offset))};
+    tt.rollback(t);
 }
 
 void tt_main(const CLI::App& app)
@@ -307,13 +328,15 @@ int main(int argc, char* argv[])
      * Roll subcommand.
      */
     auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
-    cmd_roll->add_option(req_id, "Task id.")->required(true);
+    cmd_roll->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_roll->add_option(opt_id, "Task id.");
 
     /**
      * Rollback subcommand.
      */
     auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
-    cmd_rollback->add_option(req_id, "Task id.")->required(true);
+    cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_rollback->add_option(opt_id, "Task id.");
 
     app.require_subcommand();
 

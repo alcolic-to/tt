@@ -82,6 +82,8 @@ enum class ID : u64 {};
 enum class Type : u8 { task = 0, bug = 1, feature = 2 };
 enum class Status : u8 { not_started = 0, in_progress = 1, done = 2 };
 
+enum class Offset : u64 {};
+
 template<class T>
 constexpr T as(u64 value)
 {
@@ -99,6 +101,9 @@ constexpr T as(u64 value)
             throw std::runtime_error{"Invalid task status."};
 
         return Status(value);
+    }
+    else if constexpr (std::is_same_v<T, Offset>) {
+        return Offset(value);
     }
     else
         static_assert(!"Invalid return type.");
@@ -356,6 +361,19 @@ public:
         return task_from_fstream(ifs);
     }
 
+    [[nodiscard]] Task get_task(Offset offset)
+    {
+        std::vector<Task> tasks{all_tasks_not_done()};
+        if (tasks.empty())
+            throw std::runtime_error{"No non-resolved tasks."};
+
+        u64 off = as_num(offset);
+        if (off >= tasks.size())
+            throw std::runtime_error{"Offset to large."};
+
+        return tasks[off];
+    }
+
     void change_task_status(ID id, Status status)
     {
         Task t{get_task(id)};
@@ -382,18 +400,28 @@ public:
 
     void resolve_task(ID id) { change_task_status(id, Status::done); }
 
+    void roll(Task& task)
+    {
+        task.roll_status();
+        save_task(task);
+    }
+
     void roll(ID id)
     {
         Task t{get_task(id)};
-        t.roll_status();
-        save_task(t);
+        roll(t);
+    }
+
+    void rollback(Task& task)
+    {
+        task.rollback_status();
+        save_task(task);
     }
 
     void rollback(ID id)
     {
         Task t{get_task(id)};
-        t.rollback_status();
-        save_task(t);
+        rollback(t);
     }
 
 private:
