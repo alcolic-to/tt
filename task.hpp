@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <optional>
 #ifndef TASK_HPP
 #define TASK_HPP
 
@@ -34,6 +35,9 @@
 #include "types.hpp"
 #include "util.hpp"
 
+// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
+// readability-convert-member-functions-to-static)
+
 using SystemClock = system_clock;
 using SystemTimePoint = std::chrono::time_point<SystemClock>;
 
@@ -44,11 +48,42 @@ inline SystemTimePoint now_sys() noexcept
 
 inline u64 now_sys_ns() noexcept
 {
-    return now_sys().time_since_epoch().count();
+    return static_cast<u64>(now_sys().time_since_epoch().count());
 }
 
-// NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
-// readability-convert-member-functions-to-static)
+inline std::string home_dir()
+{
+    if (char* home_dir = std::getenv("HOME"))
+        return home_dir;
+
+    if (char* home_dir = std::getenv("USERPROFILE"))
+        return home_dir;
+
+    /**
+     * TODO: Check how to get windows path if the above fails.
+     * Maybe something like this:
+     */
+    if (char *drive = std::getenv("HOMEDRIVE"), *path = std::getenv("HOMEPATH"); drive && path)
+        return std::string{drive} + path;
+
+    return "";
+}
+
+inline std::string default_username()
+{
+    if (char* user = std::getenv("USER"))
+        return user;
+
+    if (char* user = std::getenv("USERNAME"))
+        return user;
+
+    return "any";
+}
+
+inline std::string default_email()
+{
+    return "none";
+}
 
 constexpr bool dev = false;
 
@@ -58,10 +93,13 @@ constexpr char path_sep = fs::path::preferred_separator;
 const inline std::string path_sep_str = std::string{path_sep}; // NOLINT
 
 // clang-format off
-inline const std::string main_dir = ".tt";                            /* .tt/         */ // NOLINT
-inline const std::string tasks_dir = main_dir + path_sep + "tasks";   /* .tt/tasks/   */ // NOLINT
-inline const std::string md_file = main_dir + path_sep + "md";        /* .tt/md       */ // NOLINT
-inline const std::string msg_file = main_dir + path_sep + "desc_msg"; /* .tt/desc_msg */ // NOLINT
+inline const std::string main_dir = ".tt";                                 /* .tt/         */ // NOLINT
+inline const std::string tasks_global_dir = main_dir + path_sep + "tasks"; /* .tt/tasks/   */ // NOLINT
+inline const std::string md_file = main_dir + path_sep + "md";             /* .tt/md       */ // NOLINT
+inline const std::string msg_file = main_dir + path_sep + "desc_msg";      /* .tt/desc_msg */ // NOLINT
+
+inline const std::string cfg_file = home_dir() + path_sep + ".ttconfig";   /* ~/.ttconfig  */ // NOLINT
+
 // clang-format on
 
 template<class T>
@@ -79,6 +117,7 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
 }
 
 enum class ID : u64 {};
+enum class Scope : u8 { global = 0, local = 1 };
 enum class Type : u8 { task = 0, bug = 1, feature = 2 };
 enum class Status : u8 { not_started = 0, in_progress = 1, done = 2 };
 
@@ -89,6 +128,12 @@ constexpr T as(u64 value)
 {
     if constexpr (std::is_same_v<T, ID>) {
         return ID(value);
+    }
+    else if constexpr (std::is_same_v<T, Scope>) {
+        if (value > u64(Scope::local))
+            throw std::runtime_error{"Invalid task scope."};
+
+        return Scope(value);
     }
     else if constexpr (std::is_same_v<T, Type>) {
         if (value > u64(Type::feature))
@@ -124,6 +169,16 @@ enum class show { short_, long_ };
 inline std::string as_string(ID id)
 {
     return std::to_string(as_num(id));
+}
+
+template<show sh = show::long_>
+inline std::string as_string(Scope t)
+{
+    switch (t) { // clang-format off
+    case Scope::global: return sh == show::short_ ? "G" : "Global";
+    case Scope::local:  return sh == show::short_ ? "L" : "Local";
+    default:            return "invalid";
+    } // clang-format on
 }
 
 template<show sh = show::long_>
@@ -182,8 +237,9 @@ class Task {
 public:
     Task() = default;
 
-    Task(ID id, Type type, Status status, std::string desc)
+    Task(ID id, Scope scope, Type type, Status status, std::string desc)
         : m_id{id}
+        , m_scope{scope}
         , m_type{type}
         , m_status{status}
         , m_desc{std::move(desc)}
@@ -192,6 +248,8 @@ public:
 
     [[nodiscard]] ID id() const noexcept { return m_id; }
 
+    [[nodiscard]] Scope scope() const noexcept { return m_scope; }
+
     [[nodiscard]] Type type() const noexcept { return m_type; }
 
     [[nodiscard]] Status status() const noexcept { return m_status; }
@@ -199,6 +257,10 @@ public:
     [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
     [[nodiscard]] usize desc_size() const noexcept { return m_desc.size(); }
+
+    [[nodiscard]] bool global() const noexcept { return m_scope == Scope::global; }
+
+    [[nodiscard]] bool local() const noexcept { return m_scope == Scope::local; }
 
     void set_type(Type t) { m_type = t; }
 
@@ -234,16 +296,18 @@ public:
     // clang-format off
 
     [[nodiscard]] std::string for_log_id() const noexcept { return as_string(id()); }
+    [[nodiscard]] std::string for_log_scope() const noexcept { return as_string<show::short_>(scope()); }
     [[nodiscard]] std::string for_log_type() const noexcept { return as_string<show::short_>(type()); }
     [[nodiscard]] std::string for_log_status() const noexcept { return as_string<show::short_>(status()); }
     [[nodiscard]] std::string for_log_desc() const noexcept { return short_desc(); }
     [[nodiscard]] std::string for_log() const noexcept { return std::format("{} {} {} {}", for_log_id(), for_log_type(), for_log_status(), for_log_desc()); }
 
     [[nodiscard]] std::string for_show_id() const noexcept { return as_string(id()); }
+    [[nodiscard]] std::string for_show_scope() const noexcept { return as_string<show::long_>(scope()); }
     [[nodiscard]] std::string for_show_type() const noexcept { return as_string<show::long_>(type()); }
     [[nodiscard]] std::string for_show_status() const noexcept { return as_string<show::long_>(status()); }
     [[nodiscard]] std::string for_show_desc() const noexcept { return desc(); }
-    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n\n{}", for_show_id(), for_show_type(), for_show_status(), for_show_desc()); }
+    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n{}\n\n{}", for_show_id(), for_show_scope(), for_show_type(), for_show_status(), for_show_desc()); }
 
     // clang-format on
 
@@ -254,6 +318,7 @@ public:
 
 private:
     ID m_id;
+    Scope m_scope;
     Type m_type;
     Status m_status;
     std::string m_desc;
@@ -262,6 +327,7 @@ private:
 static void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
     ofs << as_num(task.id()) << "\n";
+    ofs << as_num(task.scope()) << "\n";
     ofs << as_num(task.type()) << "\n";
     ofs << as_num(task.status()) << "\n";
     ofs << task.desc() << "\n";
@@ -270,23 +336,34 @@ static void task_to_fstream(std::ofstream& ofs, const Task& task)
 static Task task_from_fstream(std::ifstream& ifs)
 {
     ID id{};
+    Scope scope{};
     Type type{};
     Status status{};
 
     u64 n{};
     ifs >> n, id = as<ID>(n), ifs >> std::ws;
+    ifs >> n, scope = as<Scope>(n), ifs >> std::ws;
     ifs >> n, type = as<Type>(n), ifs >> std::ws;
     ifs >> n, status = as<Status>(n), ifs >> std::ws;
 
     std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
     text.pop_back(); // remove \n
 
-    return Task{id, type, status, std::move(text)};
+    return Task{id, scope, type, status, std::move(text)};
 }
 
 class TaskTracker {
 public:
-    explicit TaskTracker() : m_md{read_md()} {}
+    explicit TaskTracker()
+    // : m_md{read_md()}
+    {
+        std::ifstream ifs{cfg_file};
+        ifs >> m_user;
+        ifs >> m_email;
+
+        if (m_user.empty() || m_email.empty())
+            throw std::runtime_error{"Unknown user info. Please run tt config."};
+    }
 
     TaskTracker(const TaskTracker&) = delete;
     TaskTracker(TaskTracker&&) noexcept = delete;
@@ -295,54 +372,83 @@ public:
 
     ~TaskTracker()
     {
-        try {
-            auto md_stream{open_md_write()};
-            md_to_fstream(md_stream, m_md);
-        }
-        catch (const std::exception& ex) {
-            std::cout << "Failed to write new md: " << ex.what() << "\n";
-        }
+        // try {
+        //     auto md_stream{open_md_write()};
+        //     md_to_fstream(md_stream, m_md);
+        // }
+        // catch (const std::exception& ex) {
+        //     std::cout << "Failed to write new md: " << ex.what() << "\n";
+        // }
     }
 
-    static void cmd_init()
+    static void cmd_init(const std::string& user, const std::string& email)
     {
         if (std::filesystem::exists(main_dir))
             throw std::runtime_error{"Task tracker already initialized."};
 
         std::filesystem::create_directory(main_dir);
-        std::filesystem::create_directory(tasks_dir);
-        std::ofstream mdfs{open_md_write()};
-        md_to_fstream(mdfs, initial_md);
+        std::filesystem::create_directory(tasks_global_dir);
+        std::filesystem::create_directory(tasks_global_dir + path_sep + user);
+
+        // std::ofstream mdfs{open_md_write()};
+        // md_to_fstream(mdfs, initial_md);
+
+        std::ofstream{cfg_file, std::ios::trunc} << user << "\n" << email;
     }
 
-    std::string task_path(ID id) { return tasks_dir + path_sep + as_string(id); }
+    template<Scope scope>
+    std::string tasks_dir() const noexcept
+    {
+        return tasks_global_dir + (scope == Scope::local ? path_sep + m_user : "");
+    }
+
+    std::string tasks_dir(Scope scope) const noexcept
+    {
+        return scope == Scope::local ? tasks_dir<Scope::local>() : tasks_dir<Scope::global>();
+    }
+
+    template<Scope scope>
+    std::string task_path(ID id) const noexcept
+    {
+        return tasks_dir<scope>() + path_sep + as_string(id);
+    }
+
+    std::string task_path(const Task& task) const noexcept
+    {
+        return tasks_dir(task.scope()) + path_sep + as_string(task.id());
+    }
 
     /**
      * Returns all tasks in descending order.
      */
+    template<Scope scope>
     std::vector<Task> all_tasks() const noexcept
     {
-        return all_tasks_where([](const Task& t) { return true; });
+        return all_tasks_where<scope>([](const Task& t) { return true; });
     }
 
     /**
      * Returns all tasks in descending order.
      */
+    template<Scope scope>
     std::vector<Task> all_tasks_not_done() const noexcept
     {
-        return all_tasks_where([](const Task& t) { return t.status() != Status::done; });
+        return all_tasks_where<scope>([](const Task& t) { return t.status() != Status::done; });
     }
 
     /**
      * Returns all tasks in descending order where tasks match predicate.
      */
-    template<typename Pred>
+    template<Scope scope, typename Pred>
     std::vector<Task> all_tasks_where(Pred pred) const noexcept
     {
         std::vector<Task> tasks;
         tasks.reserve(1024);
 
-        for (const auto& entry : fs::directory_iterator{tasks_dir}) {
+        for (const auto& entry : fs::directory_iterator{tasks_dir<scope>()}) {
+            if (!entry.is_regular_file())
+                continue;
+
             std::ifstream ifs{entry.path()};
             Task task{task_from_fstream(ifs)};
             if (pred(task))
@@ -354,18 +460,45 @@ public:
         return tasks;
     }
 
+    Task task_from_offset(u64 offset)
+    {
+        std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
+        if (tasks.empty())
+            throw std::runtime_error{"No non-resolved tasks."};
+
+        if (offset >= tasks.size())
+            throw std::runtime_error{"Offset to large."};
+
+        return tasks[offset];
+    }
+
+    /**
+     * Returns whether task with provided id in given scope exists.
+     */
+    template<Scope scope>
+    bool exists(ID id)
+    {
+        return std::filesystem::exists(task_path<scope>(id));
+    }
+
+    template<Scope scope>
     [[nodiscard]] Task get_task(ID id)
     {
-        std::ifstream ifs{task_path(id)};
+        std::ifstream ifs{task_path<scope>(id)};
         if (!ifs)
             throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
 
         return task_from_fstream(ifs);
     }
 
+    /**
+     * Returns non-resolved local task with provided offset.
+     * This kind of offset based task retrival is done in many commands.
+     * Offset can be seen with log command with current design.
+     */
     [[nodiscard]] Task get_task(Offset offset)
     {
-        std::vector<Task> tasks{all_tasks_not_done()};
+        std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
         if (tasks.empty())
             throw std::runtime_error{"No non-resolved tasks."};
 
@@ -376,31 +509,41 @@ public:
         return tasks[off];
     }
 
+    void change_task_status(Task& task, Status status)
+    {
+        task.set_status(status);
+        save_task(task);
+    }
+
+    template<Scope scope>
     void change_task_status(ID id, Status status)
     {
-        Task t{get_task(id)};
-        t.set_status(status);
-        save_task(t);
+        Task task{get_task<scope>(id)};
+        change_task_status(task, status);
     }
 
     void save_task(const Task& task)
     {
-        std::ofstream ofs{task_path(task.id()), std::ios::trunc};
+        std::ofstream ofs{task_path(task), std::ios::trunc};
         task_to_fstream(ofs, task);
     }
 
-    void new_task(Type type, std::string desc)
+    void new_task(ID id, Scope scope, Type type, std::string desc)
     {
-        save_task(Task{next_id(), type, Status::not_started, std::move(desc)});
+        save_task(Task{id, scope, type, Status::not_started, std::move(desc)});
     }
 
-    void new_task(std::string desc) { new_task(Type::task, std::move(desc)); }
+    // void reopen_task(ID id) { change_task_status(id, Status::not_started); }
 
-    void reopen_task(ID id) { change_task_status(id, Status::not_started); }
+    // void start_task(ID id) { change_task_status(id, Status::in_progress); }
 
-    void in_progress_task(ID id) { change_task_status(id, Status::in_progress); }
+    void resolve_task(Task& task) { change_task_status(task, Status::done); }
 
-    void resolve_task(ID id) { change_task_status(id, Status::done); }
+    template<Scope scope>
+    void resolve_task(ID id)
+    {
+        change_task_status<scope>(id, Status::done);
+    }
 
     void roll(Task& task)
     {
@@ -408,10 +551,11 @@ public:
         save_task(task);
     }
 
+    template<Scope scope>
     void roll(ID id)
     {
-        Task t{get_task(id)};
-        roll(t);
+        Task task{get_task<scope>(id)};
+        roll(task);
     }
 
     void rollback(Task& task)
@@ -420,38 +564,45 @@ public:
         save_task(task);
     }
 
+    template<Scope scope>
     void rollback(ID id)
     {
-        Task t{get_task(id)};
-        rollback(t);
+        Task task{get_task<scope>(id)};
+        rollback(task);
     }
+
+    ID next_id() { return as<ID>(now_sys_ns()); }
 
 private:
-    static std::ifstream open_md_read()
-    {
-        if (!std::filesystem::exists(main_dir)) {
-            if constexpr (!dev)
-                throw std::runtime_error{"Task tracker not initialized. Please run init."};
+    // static std::ifstream open_md_read()
+    // {
+    //     if (!std::filesystem::exists(main_dir)) {
+    //         if constexpr (!dev)
+    //             throw std::runtime_error{"Task tracker not initialized. Please run init."};
 
-            cmd_init();
-        }
+    //         cmd_init();
+    //     }
 
-        return std::ifstream{md_file};
-    }
+    //     return std::ifstream{md_file};
+    // }
 
-    static std::ofstream open_md_write() { return std::ofstream{md_file, std::ios::trunc}; }
+    // static std::ofstream open_md_write() { return std::ofstream{md_file, std::ios::trunc}; }
 
-    static MD read_md()
-    {
-        std::ifstream md_stream{open_md_read()};
-        return md_from_fstream(md_stream);
-    }
+    // static MD read_md()
+    // {
+    //     std::ifstream md_stream{open_md_read()};
+    //     return md_from_fstream(md_stream);
+    // }
 
-    // Task id is task creation time (system time point) in nanoseconds.
-    ID next_id() { return as<ID>(now_sys_ns()); }
+    /**
+     * Task id is task creation time (system time point) in nanoseconds.
+     */
 
 private: // NOLINT
     MD m_md;
+
+    std::string m_user;
+    std::string m_email;
 };
 
 // NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,

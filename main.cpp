@@ -30,27 +30,33 @@
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-avoid-return-with-void-value)
 
-const std::string version = "0.0.1"; // NOLINT
+const std::string version = "0.0.1";
 
-const std::string subcmd_init = "init";         // NOLINT
-const std::string subcmd_push = "push";         // NOLINT
-const std::string subcmd_pop = "pop";           // NOLINT
-const std::string subcmd_log = "log";           // NOLINT
-const std::string subcmd_show = "show";         // NOLINT
-const std::string subcmd_roll = "roll";         // NOLINT
-const std::string subcmd_rollback = "rollback"; // NOLINT
-const std::string subcmd_amend = "amend";       // NOLINT
+const std::string subcmd_init = "init";
+const std::string subcmd_push = "push";
+const std::string subcmd_pop = "pop";
+const std::string subcmd_log = "log";
+const std::string subcmd_show = "show";
+const std::string subcmd_roll = "roll";
+const std::string subcmd_rollback = "rollback";
+const std::string subcmd_amend = "amend";
 
-// const std::string req_id = "id";
-
+const std::string opt_name = "--name,-n";
+const std::string opt_name_short = "-n";
+const std::string opt_email = "--email,-e";
+const std::string opt_email_short = "-e";
 const std::string opt_offset = "offset";
 const std::string opt_id = "--id";
-const std::string opt_message = "-m,--message"; // NOLINT
-const std::string opt_message_short = "-m";     // NOLINT
-const std::string opt_type = "-t,--type";       // NOLINT
-const std::string opt_type_short = "-t";        // NOLINT
-const std::string opt_all = "-a,--all";         // NOLINT
-const std::string opt_all_short = "-a";         // NOLINT
+const std::string opt_message = "-m,--message";
+const std::string opt_message_short = "-m";
+const std::string opt_type = "-t,--type";
+const std::string opt_type_short = "-t";
+const std::string opt_all = "-a,--all";
+const std::string opt_all_short = "-a";
+const std::string opt_global = "--global,-g";
+const std::string opt_global_short = "-g";
+const std::string opt_local = "--local,-l";
+const std::string opt_local_short = "-l";
 
 const std::string default_editor = "vim";
 const std::string default_editor_message =
@@ -63,6 +69,10 @@ namespace {
 int test_main() // NOLINT
 {
     try {
+        // std::ofstream{cfg_file, std::ios::trunc} << "Some new file content";
+
+        // std::ofstream{cfg_file, std::ios::trunc} << "alcolic-to";
+
         // TaskTracker tt;
 
         // std::cout << esc << "38;5;2m" << "This should be green\n"
@@ -116,50 +126,89 @@ std::string desc_from_editor(const std::string& msg = "")
     return ss.str();
 }
 
-void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
+std::string desc_from_opt_or_editor(CLI::App& cmd, const std::string& inital_desc = "")
 {
     std::string desc;
-    Type type{Type::task};
 
-    if (CLI::Option* opt = cmd_push.get_option(opt_message_short); *opt)
+    if (CLI::Option* opt = cmd.get_option(opt_message_short); *opt)
         desc = opt->as<std::string>();
 
-    if (CLI::Option* opt = cmd_push.get_option(opt_type_short); *opt)
-        type = as<Type>(opt->as<u64>());
-
     if (desc.empty())
-        desc = desc_from_editor();
+        desc = desc_from_editor(inital_desc);
 
     trim_left(desc), trim_right(desc);
 
     if (desc.empty() || spaces_only(desc))
         throw std::runtime_error{"Empty message. Aborting creation."};
 
-    tt.new_task(type, std::move(desc));
+    return desc;
+}
+
+Task task_from_offset(TaskTracker& tt, CLI::App& cmd)
+{
+    u64 offset = 0;
+
+    if (CLI::Option* opt = cmd.get_option(opt_offset); *opt)
+        offset = opt->as<u64>();
+
+    return tt.get_task(as<Offset>(offset));
+}
+
+void tt_cmd_init(CLI::App& cmd_init)
+{
+    std::string name{default_username()};
+    if (CLI::Option* opt = cmd_init.get_option(opt_name_short); *opt)
+        name = opt->as<std::string>();
+
+    std::string email{default_email()};
+    if (CLI::Option* opt = cmd_init.get_option(opt_email_short); *opt)
+        email = opt->as<std::string>();
+
+    return TaskTracker::cmd_init(name, email);
+}
+
+void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
+{
+    ID id = tt.next_id();
+
+    Type type{Type::task};
+    if (CLI::Option* opt = cmd_push.get_option(opt_type_short); *opt)
+        type = as<Type>(opt->as<u64>());
+
+    std::string desc{desc_from_opt_or_editor(cmd_push)};
+
+    if (CLI::Option* opt = cmd_push.get_option(opt_global_short); *opt) {
+        tt.new_task(id, Scope::global, type, desc);
+
+        if (opt = cmd_push.get_option(opt_local_short); !*opt)
+            return;
+    }
+
+    tt.new_task(id, Scope::local, type, std::move(desc));
 }
 
 void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
 {
     if (CLI::Option* opt = cmd_pop.get_option(opt_id); *opt) {
-        tt.resolve_task(as<ID>(opt->as<u64>()));
+        ID id = as<ID>(opt->as<u64>());
+
+        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+
+        if (tt.exists<Scope::local>(id))
+            tt.resolve_task<Scope::local>(id);
+
+        if (tt.exists<Scope::global>(id))
+            tt.resolve_task<Scope::global>(id);
+
         return;
     }
 
-    std::vector<Task> tasks{tt.all_tasks_not_done()};
-    if (tasks.empty())
-        throw std::runtime_error{"No non-resolved tasks."};
+    Task local_task = task_from_offset(tt, cmd_pop);
+    tt.resolve_task(local_task);
 
-    u64 offset = 0;
-
-    if (CLI::Option* opt = cmd_pop.get_option(opt_offset); *opt)
-        offset = opt->as<u64>();
-
-    if (offset >= tasks.size())
-        throw std::runtime_error{"Offset to large."};
-
-    Task& t = tasks[offset];
-    t.set_status(Status::done);
-    tt.save_task(t);
+    if (tt.exists<Scope::global>(local_task.id()))
+        tt.resolve_task<Scope::global>(local_task.id());
 }
 
 void log_task(const Task& task, u64 vid = -1)
@@ -168,6 +217,7 @@ void log_task(const Task& task, u64 vid = -1)
         print<yellow>("{:<3} ", vid);
 
     print<yellow>("{} ", task.for_log_id());
+    print<high_blue>("{} ", task.for_log_scope());
     print<high_blue>("{} ", task.for_log_type());
 
     switch (task.status()) { // clang-format off
@@ -193,8 +243,16 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
         return [](const Task& t) { return t.status() != Status::done; };
     }();
 
+    if (CLI::Option* opt = cmd_log.get_option(opt_global_short); *opt) {
+        for (const Task& task : tt.all_tasks_where<Scope::global>(pred))
+            log_task(task);
+
+        if (opt = cmd_log.get_option(opt_local_short); !*opt)
+            return;
+    }
+
     u64 vid = 0;
-    for (const Task& task : tt.all_tasks_where(pred))
+    for (const Task& task : tt.all_tasks_where<Scope::local>(pred))
         if (opt_all)
             log_task(task);
         else
@@ -204,6 +262,7 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
 void show_task(const Task& task)
 {
     println<yellow>("{}", task.for_show_id());
+    println<high_blue>("{}", task.for_show_scope());
     println<high_blue>("{}", task.for_show_type());
 
     switch (task.status()) { // clang-format off
@@ -219,45 +278,81 @@ void show_task(const Task& task)
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 {
     if (CLI::Option* opt = cmd_show.get_option(opt_id); *opt) {
-        show_task(tt.get_task(as<ID>(opt->as<u64>())));
+        ID id = as<ID>(opt->as<u64>());
+
+        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+
+        if (tt.exists<Scope::local>(id)) {
+            show_task(tt.get_task<Scope::local>(id));
+            println("");
+        }
+
+        if (tt.exists<Scope::global>(id))
+            show_task(tt.get_task<Scope::global>(id));
+
         return;
     }
 
-    u64 offset = 0;
-    if (CLI::Option* opt = cmd_show.get_option(opt_offset); *opt)
-        offset = opt->as<u64>();
+    Task task{task_from_offset(tt, cmd_show)};
+    show_task(task);
 
-    show_task(tt.get_task(as<Offset>(offset)));
+    if (tt.exists<Scope::global>(task.id())) {
+        println("");
+        show_task(tt.get_task<Scope::global>(task.id()));
+    }
 }
 
 void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_roll)
 {
     if (CLI::Option* opt = cmd_roll.get_option(opt_id); *opt) {
-        tt.roll(as<ID>(cmd_roll.get_option(opt_id)->as<u64>()));
+        ID id = as<ID>(opt->as<u64>());
+
+        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+
+        if (tt.exists<Scope::local>(id))
+            tt.roll<Scope::local>(id);
+
+        if (tt.exists<Scope::global>(id))
+            tt.roll<Scope::global>(id);
+
         return;
     }
 
-    u64 offset = 0;
-    if (CLI::Option* opt = cmd_roll.get_option(opt_offset); *opt)
-        offset = opt->as<u64>();
+    Task task{task_from_offset(tt, cmd_roll)};
+    tt.roll(task);
 
-    Task t{tt.get_task(as<Offset>(offset))};
-    tt.roll(t);
+    if (tt.exists<Scope::global>(task.id())) {
+        Task global_task{tt.get_task<Scope::global>(task.id())};
+        tt.roll(global_task);
+    }
 }
 
 void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
 {
     if (CLI::Option* opt = cmd_rollback.get_option(opt_id); *opt) {
-        tt.rollback(as<ID>(cmd_rollback.get_option(opt_id)->as<u64>()));
+        ID id = as<ID>(opt->as<u64>());
+
+        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+
+        if (tt.exists<Scope::local>(id))
+            tt.rollback<Scope::local>(id);
+
+        if (tt.exists<Scope::global>(id))
+            tt.rollback<Scope::global>(id);
+
         return;
     }
 
-    u64 offset = 0;
-    if (CLI::Option* opt = cmd_rollback.get_option(opt_offset); *opt)
-        offset = opt->as<u64>();
+    Task task{task_from_offset(tt, cmd_rollback)};
+    tt.rollback(task);
 
-    Task t{tt.get_task(as<Offset>(offset))};
-    tt.rollback(t);
+    if (tt.exists<Scope::global>(task.id())) {
+        Task global_task{tt.get_task<Scope::global>(task.id())};
+        tt.rollback(global_task);
+    }
 }
 
 void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
@@ -265,40 +360,42 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     Task task;
 
     if (CLI::Option* opt = cmd_amend.get_option(opt_id); *opt) {
-        task = tt.get_task(as<ID>(cmd_amend.get_option(opt_id)->as<u64>()));
+        ID id = as<ID>(opt->as<u64>());
+
+        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+
+        if (tt.exists<Scope::local>(id))
+            task = tt.get_task<Scope::local>(id);
+        else
+            task = tt.get_task<Scope::global>(id);
     }
     else {
-        u64 offset = 0;
-        if (CLI::Option* opt = cmd_amend.get_option(opt_offset); *opt)
-            offset = opt->as<u64>();
-
-        task = tt.get_task(as<Offset>(offset));
+        task = task_from_offset(tt, cmd_amend);
     }
 
+    Type type = task.type();
     if (CLI::Option* opt = cmd_amend.get_option(opt_type_short); *opt)
-        task.set_type(as<Type>(opt->as<u64>()));
+        type = as<Type>(opt->as<u64>());
 
-    std::string desc;
+    std::string desc{desc_from_opt_or_editor(cmd_amend, task.desc())};
 
-    if (CLI::Option* opt = cmd_amend.get_option(opt_message_short); *opt)
-        desc = opt->as<std::string>();
-
-    if (desc.empty())
-        desc = desc_from_editor(task.desc());
-
-    trim_left(desc), trim_right(desc);
-
-    if (desc.empty() || spaces_only(desc))
-        throw std::runtime_error{"Empty message. Aborting amend."};
-
-    task.set_desc(std::move(desc));
+    task.set_type(type);
+    task.set_desc(desc);
     tt.save_task(task);
+
+    if (task.scope() == Scope::local && tt.exists<Scope::global>(task.id())) {
+        Task global_task{tt.get_task<Scope::global>(task.id())};
+        global_task.set_type(type);
+        global_task.set_desc(std::move(desc));
+        tt.save_task(global_task);
+    }
 }
 
 void tt_main(const CLI::App& app)
 {
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
-        return TaskTracker::cmd_init();
+        return tt_cmd_init(*cmd);
 
     TaskTracker tt;
 
@@ -336,10 +433,14 @@ int main(int argc, char* argv[])
 
     app.set_version_flag("-v,--version", version, "Task tracker version.");
 
+    /* clang-format off */ 
+
     /**
      * Init subcommand.
      */
-    [[maybe_unused]] auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
+    auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
+    cmd_init->add_option(opt_name, "username for new user (default is read from env).");
+    cmd_init->add_option(opt_email, "email for new user (default is 'none').");
 
     /**
      * Push subcommand.
@@ -347,46 +448,52 @@ int main(int argc, char* argv[])
     auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
     cmd_push->add_option(opt_message, "Message that will be written to the task.");
     cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+    cmd_push->add_flag(opt_global, "Creates global task. You can set both g and l options.");
+    cmd_push->add_flag(opt_local, "Creates local task (default). You can set both g and l options.");
 
     /**
      * Pop subcommand.
      */
     auto* cmd_pop = app.add_subcommand(subcmd_pop, "Resolves task.")->alias("resolve");
-    cmd_pop->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_pop->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks. If coresponding global task exists, resolves it too.");
     cmd_pop->add_option(opt_id, "Task id to pop (resolve).");
+    cmd_pop->add_flag(opt_global, "Resolves global task (default, if global task exist). You can set both g and l options.");
+    cmd_pop->add_flag(opt_local, "Resolves local task (default). You can set both g and l options.");
 
     /**
      * Log subcommand.
      */
     auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all unresolved tasks.");
     cmd_log->add_flag(opt_all, "Logs all tasks.");
+    cmd_log->add_flag(opt_global, "Logs global tasks.");
+    cmd_log->add_flag(opt_local, "Logs local tasks.");
 
     /**
      * Show subcommand.
      */
     auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
-    cmd_show->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_show->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
     cmd_show->add_option(opt_id, "Task id.");
 
     /**
      * Roll subcommand.
      */
     auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
-    cmd_roll->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_roll->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
     cmd_roll->add_option(opt_id, "Task id.");
 
     /**
      * Rollback subcommand.
      */
     auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
-    cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
     cmd_rollback->add_option(opt_id, "Task id.");
 
     /**
      * Amend subcommand.
      */
     auto* cmd_amend = app.add_subcommand(subcmd_amend, "Replaces tasks message.");
-    cmd_amend->add_option(opt_offset, "Offset (zero based) from top of a non-resolved tasks.");
+    cmd_amend->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
     cmd_amend->add_option(opt_id, "Task id.");
     cmd_amend->add_option(opt_message, "Message that will be written to the task.");
     cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
@@ -394,6 +501,8 @@ int main(int argc, char* argv[])
     app.require_subcommand();
 
     CLI11_PARSE(app, argc, argv);
+
+    /* clang-format on */
 
     try {
         tt_main(app);
