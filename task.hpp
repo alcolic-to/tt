@@ -91,15 +91,16 @@ inline std::string default_email()
     return "none";
 }
 
-// clang-format off
-inline const fs::path main_dir = ".tt";                      /* .tt/         */ // NOLINT
-inline const fs::path tasks_global_dir = main_dir / "tasks"; /* .tt/tasks/   */ // NOLINT
-inline const fs::path md_file = main_dir / "md";             /* .tt/md       */ // NOLINT
-inline const fs::path msg_file = main_dir / "desc_msg";      /* .tt/desc_msg */ // NOLINT
+/* clang-format off */
+inline const fs::path main_dir = ".tt";                      /* .tt/         */
+inline const fs::path tasks_global_dir = main_dir / "tasks"; /* .tt/tasks/   */
+inline const fs::path md_file = main_dir / "md";             /* .tt/md       */
+inline const fs::path msg_file = main_dir / "desc_msg";      /* .tt/desc_msg */
 
-inline const fs::path cfg_file = home_dir() / ".ttconfig";   /* ~/.ttconfig  */ // NOLINT
+inline const fs::path cfg_file = home_dir() / ".ttconfig";   /* ~/.ttconfig  */
 
-// clang-format on
+inline const fs::path refs_filename = "refs";                /* refs filename, located in .tt/<user>/refs */
+/* clang-format on */
 
 template<class T>
 void log(T&& value)
@@ -391,6 +392,7 @@ public:
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_global_dir);
         std::filesystem::create_directory(tasks_global_dir / user);
+        std::filesystem::create_directory(tasks_global_dir / user / refs_filename);
 
         // std::ofstream mdfs{open_md_write()};
         // md_to_fstream(mdfs, initial_md);
