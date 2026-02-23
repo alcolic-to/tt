@@ -356,6 +356,9 @@ public:
     explicit TaskTracker()
     // : m_md{read_md()}
     {
+        if (!fs::exists(main_dir))
+            throw std::runtime_error{"Task tracker not initialized. Please run init."};
+
         std::ifstream ifs{cfg_file};
         ifs >> m_user;
         ifs >> m_email;
