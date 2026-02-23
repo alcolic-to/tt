@@ -113,7 +113,7 @@ bool spaces_only(const std::string& s)
 std::string desc_from_editor(const std::string& msg = "")
 {
     std::ofstream{msg_file, std::ios::trunc} << msg << default_editor_message;
-    std::system(std::string{default_editor + " " + msg_file}.c_str());
+    std::system(std::string{default_editor + " " + msg_file.string()}.c_str());
 
     std::stringstream ss;
     std::string line;

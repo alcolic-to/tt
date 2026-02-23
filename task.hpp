@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <optional>
 #ifndef TASK_HPP
 #define TASK_HPP
 
@@ -35,8 +34,15 @@
 #include "types.hpp"
 #include "util.hpp"
 
+/**
+ * Set to true to enter test_main().
+ */
+constexpr bool dev = false;
+
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-convert-member-functions-to-static)
+
+namespace fs = std::filesystem;
 
 using SystemClock = system_clock;
 using SystemTimePoint = std::chrono::time_point<SystemClock>;
@@ -51,7 +57,7 @@ inline u64 now_sys_ns() noexcept
     return static_cast<u64>(now_sys().time_since_epoch().count());
 }
 
-inline std::string home_dir()
+inline fs::path home_dir()
 {
     if (char* home_dir = std::getenv("HOME"))
         return home_dir;
@@ -64,7 +70,7 @@ inline std::string home_dir()
      * Maybe something like this:
      */
     if (char *drive = std::getenv("HOMEDRIVE"), *path = std::getenv("HOMEPATH"); drive && path)
-        return std::string{drive} + path;
+        return fs::path{drive}.append(path);
 
     return "";
 }
@@ -85,20 +91,13 @@ inline std::string default_email()
     return "none";
 }
 
-constexpr bool dev = false;
-
-namespace fs = std::filesystem;
-
-constexpr char path_sep = fs::path::preferred_separator;
-const inline std::string path_sep_str = std::string{path_sep}; // NOLINT
-
 // clang-format off
-inline const std::string main_dir = ".tt";                                 /* .tt/         */ // NOLINT
-inline const std::string tasks_global_dir = main_dir + path_sep + "tasks"; /* .tt/tasks/   */ // NOLINT
-inline const std::string md_file = main_dir + path_sep + "md";             /* .tt/md       */ // NOLINT
-inline const std::string msg_file = main_dir + path_sep + "desc_msg";      /* .tt/desc_msg */ // NOLINT
+inline const fs::path main_dir = ".tt";                      /* .tt/         */ // NOLINT
+inline const fs::path tasks_global_dir = main_dir / "tasks"; /* .tt/tasks/   */ // NOLINT
+inline const fs::path md_file = main_dir / "md";             /* .tt/md       */ // NOLINT
+inline const fs::path msg_file = main_dir / "desc_msg";      /* .tt/desc_msg */ // NOLINT
 
-inline const std::string cfg_file = home_dir() + path_sep + ".ttconfig";   /* ~/.ttconfig  */ // NOLINT
+inline const fs::path cfg_file = home_dir() / ".ttconfig";   /* ~/.ttconfig  */ // NOLINT
 
 // clang-format on
 
@@ -388,7 +387,7 @@ public:
 
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_global_dir);
-        std::filesystem::create_directory(tasks_global_dir + path_sep + user);
+        std::filesystem::create_directory(tasks_global_dir / user);
 
         // std::ofstream mdfs{open_md_write()};
         // md_to_fstream(mdfs, initial_md);
@@ -397,25 +396,28 @@ public:
     }
 
     template<Scope scope>
-    std::string tasks_dir() const noexcept
+    fs::path tasks_dir() const noexcept
     {
-        return tasks_global_dir + (scope == Scope::local ? path_sep + m_user : "");
+        if constexpr (scope == Scope::local)
+            return tasks_global_dir / m_user;
+        else
+            return tasks_global_dir;
     }
 
-    std::string tasks_dir(Scope scope) const noexcept
+    fs::path tasks_dir(Scope scope) const noexcept
     {
         return scope == Scope::local ? tasks_dir<Scope::local>() : tasks_dir<Scope::global>();
     }
 
     template<Scope scope>
-    std::string task_path(ID id) const noexcept
+    fs::path task_path(ID id) const noexcept
     {
-        return tasks_dir<scope>() + path_sep + as_string(id);
+        return tasks_dir<scope>() / as_string(id);
     }
 
-    std::string task_path(const Task& task) const noexcept
+    fs::path task_path(const Task& task) const noexcept
     {
-        return tasks_dir(task.scope()) + path_sep + as_string(task.id());
+        return tasks_dir(task.scope()) / as_string(task.id());
     }
 
     /**
@@ -440,7 +442,7 @@ public:
      * Returns all tasks in descending order where tasks match predicate.
      */
     template<Scope scope, typename Pred>
-    std::vector<Task> all_tasks_where(Pred pred) const noexcept
+    std::vector<Task> all_tasks_where(Pred pred) const
     {
         std::vector<Task> tasks;
         tasks.reserve(1024);
@@ -449,8 +451,7 @@ public:
             if (!entry.is_regular_file())
                 continue;
 
-            std::ifstream ifs{entry.path()};
-            Task task{task_from_fstream(ifs)};
+            Task task{get_task(entry.path())};
             if (pred(task))
                 tasks.emplace_back(std::move(task));
         }
@@ -460,35 +461,28 @@ public:
         return tasks;
     }
 
-    Task task_from_offset(u64 offset)
-    {
-        std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
-        if (tasks.empty())
-            throw std::runtime_error{"No non-resolved tasks."};
-
-        if (offset >= tasks.size())
-            throw std::runtime_error{"Offset to large."};
-
-        return tasks[offset];
-    }
-
     /**
      * Returns whether task with provided id in given scope exists.
      */
     template<Scope scope>
-    bool exists(ID id)
+    bool exists(ID id) const
     {
         return std::filesystem::exists(task_path<scope>(id));
     }
 
-    template<Scope scope>
-    [[nodiscard]] Task get_task(ID id)
+    [[nodiscard]] Task get_task(const fs::path& path) const
     {
-        std::ifstream ifs{task_path<scope>(id)};
+        std::ifstream ifs{path};
         if (!ifs)
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
+            throw std::runtime_error{std::format("Task {} does not exist.", path.string())};
 
         return task_from_fstream(ifs);
+    }
+
+    template<Scope scope>
+    [[nodiscard]] Task get_task(ID id) const
+    {
+        return get_task(task_path<scope>(id));
     }
 
     /**
@@ -496,7 +490,7 @@ public:
      * This kind of offset based task retrival is done in many commands.
      * Offset can be seen with log command with current design.
      */
-    [[nodiscard]] Task get_task(Offset offset)
+    [[nodiscard]] Task get_task(Offset offset) const
     {
         std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
         if (tasks.empty())
