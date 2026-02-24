@@ -26,6 +26,7 @@
 #include <ios>
 #include <iostream>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -214,22 +215,62 @@ struct MD {
     }
 };
 
-static constexpr MD initial_md = {
-    .m_id = as<ID>(1),
+// static constexpr MD initial_md = {
+//     .m_id = as<ID>(1),
+// };
+
+// inline MD md_from_fstream(std::ifstream& ifs)
+// {
+//     u64 n{};
+//     ifs >> n;
+
+//     return MD{.m_id = as<ID>(n)};
+// }
+
+// inline void md_to_fstream(std::ofstream& ofs, const MD& md)
+// {
+//     ofs << as_num(md.m_id);
+// }
+
+/**
+ * Global identifier for the task which is also task filename.
+ */
+class UID {
+public:
+    UID(const fs::path& path)
+    {
+        u8 scope;
+        u64 id;
+
+        std::stringstream ss{path.filename()};
+        ss >> scope;
+
+        if (scope == 'G')
+            m_scope = Scope::global;
+        else if (scope == 'L')
+            m_scope = Scope::local;
+        else
+            throw std::runtime_error{"Invalid task scope."};
+
+        ss >> id, m_id = as<ID>(id);
+    }
+
+    UID(const class Task& task);
+
+    fs::path as_filename() const { return (global() ? "G" : "L") + ::as_string(m_id); }
+
+    Scope scope() const noexcept { return m_scope; }
+
+    bool global() const noexcept { return m_scope == Scope::global; }
+
+    bool local() const noexcept { return !global(); }
+
+    ID id() const noexcept { return m_id; }
+
+private:
+    Scope m_scope;
+    ID m_id;
 };
-
-inline MD md_from_fstream(std::ifstream& ifs)
-{
-    u64 n{};
-    ifs >> n;
-
-    return MD{.m_id = as<ID>(n)};
-}
-
-inline void md_to_fstream(std::ofstream& ofs, const MD& md)
-{
-    ofs << as_num(md.m_id);
-}
 
 class Task {
     friend inline std::ifstream& operator>>(std::ifstream& ifs, Task& task);
@@ -260,7 +301,7 @@ public:
 
     [[nodiscard]] bool global() const noexcept { return m_scope == Scope::global; }
 
-    [[nodiscard]] bool local() const noexcept { return m_scope == Scope::local; }
+    [[nodiscard]] bool local() const noexcept { return !global(); }
 
     void set_type(Type t) { m_type = t; }
 
@@ -293,6 +334,10 @@ public:
         return m_desc.substr(start, m_desc.find('\n', start) - start);
     }
 
+    UID uid() const noexcept { return UID{*this}; }
+
+    [[nodiscard]] fs::path as_filename() const { return uid().as_filename(); }
+
     // clang-format off
 
     [[nodiscard]] std::string for_log_id() const noexcept { return as_string(id()); }
@@ -300,7 +345,7 @@ public:
     [[nodiscard]] std::string for_log_type() const noexcept { return as_string<show::short_>(type()); }
     [[nodiscard]] std::string for_log_status() const noexcept { return as_string<show::short_>(status()); }
     [[nodiscard]] std::string for_log_desc() const noexcept { return short_desc(); }
-    [[nodiscard]] std::string for_log() const noexcept { return std::format("{} {} {} {}", for_log_id(), for_log_type(), for_log_status(), for_log_desc()); }
+    [[nodiscard]] std::string for_log() const noexcept { return std::format("{}{} {} {} {}", for_log_scope(), for_log_id(), for_log_type(), for_log_status(), for_log_desc()); }
 
     [[nodiscard]] std::string for_show_id() const noexcept { return as_string(id()); }
     [[nodiscard]] std::string for_show_scope() const noexcept { return as_string<show::long_>(scope()); }
@@ -323,6 +368,8 @@ private:
     Status m_status;
     std::string m_desc;
 };
+
+UID::UID(const Task& task) : m_scope{task.scope()}, m_id{task.id()} {}
 
 static void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
@@ -414,22 +461,21 @@ public:
         return scope == Scope::local ? tasks_dir<Scope::local>() : tasks_dir<Scope::global>();
     }
 
-    template<Scope scope>
-    fs::path task_path(ID id) const noexcept
+    fs::path task_path(UID uid) const noexcept
     {
-        return tasks_dir<scope>() / as_string(id);
+        return tasks_dir(uid.scope()) / uid.as_filename();
     }
 
     fs::path task_path(const Task& task) const noexcept
     {
-        return tasks_dir(task.scope()) / as_string(task.id());
+        return tasks_dir(task.scope()) / task.as_filename();
     }
 
     /**
      * Returns all tasks in descending order.
      */
     template<Scope scope>
-    std::vector<Task> all_tasks() const noexcept
+    std::vector<Task> all_tasks() const
     {
         return all_tasks_where<scope>([](const Task& t) { return true; });
     }
@@ -438,7 +484,7 @@ public:
      * Returns all tasks in descending order.
      */
     template<Scope scope>
-    std::vector<Task> all_tasks_not_done() const noexcept
+    std::vector<Task> all_tasks_not_done() const
     {
         return all_tasks_where<scope>([](const Task& t) { return t.status() != Status::done; });
     }
@@ -470,9 +516,9 @@ public:
      * Returns whether task with provided id in given scope exists.
      */
     template<Scope scope>
-    bool exists(ID id) const
+    bool exists(UID uid) const
     {
-        return std::filesystem::exists(task_path<scope>(id));
+        return std::filesystem::exists(task_path(uid));
     }
 
     [[nodiscard]] Task get_task(const fs::path& path) const
@@ -484,11 +530,7 @@ public:
         return task_from_fstream(ifs);
     }
 
-    template<Scope scope>
-    [[nodiscard]] Task get_task(ID id) const
-    {
-        return get_task(task_path<scope>(id));
-    }
+    [[nodiscard]] Task get_task(UID uid) const { return get_task(task_path(uid)); }
 
     /**
      * Returns non-resolved local task with provided offset.
@@ -514,10 +556,9 @@ public:
         save_task(task);
     }
 
-    template<Scope scope>
-    void change_task_status(ID id, Status status)
+    void change_task_status(UID uid, Status status)
     {
-        Task task{get_task<scope>(id)};
+        Task task{get_task(uid)};
         change_task_status(task, status);
     }
 
@@ -532,17 +573,9 @@ public:
         save_task(Task{id, scope, type, Status::not_started, std::move(desc)});
     }
 
-    // void reopen_task(ID id) { change_task_status(id, Status::not_started); }
-
-    // void start_task(ID id) { change_task_status(id, Status::in_progress); }
-
     void resolve_task(Task& task) { change_task_status(task, Status::done); }
 
-    template<Scope scope>
-    void resolve_task(ID id)
-    {
-        change_task_status<scope>(id, Status::done);
-    }
+    void resolve_task(UID uid) { change_task_status(uid, Status::done); }
 
     void roll(Task& task)
     {
@@ -550,10 +583,9 @@ public:
         save_task(task);
     }
 
-    template<Scope scope>
-    void roll(ID id)
+    void roll(UID uid)
     {
-        Task task{get_task<scope>(id)};
+        Task task{get_task(uid)};
         roll(task);
     }
 
@@ -563,10 +595,9 @@ public:
         save_task(task);
     }
 
-    template<Scope scope>
-    void rollback(ID id)
+    void rollback(UID uid)
     {
-        Task task{get_task<scope>(id)};
+        Task task{get_task(uid)};
         rollback(task);
     }
 

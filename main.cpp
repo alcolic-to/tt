@@ -43,10 +43,10 @@ const std::string subcmd_amend = "amend";
 
 const std::string opt_name = "--name,-n";
 const std::string opt_name_short = "-n";
-const std::string opt_email = "--email,-e";
-const std::string opt_email_short = "-e";
+const std::string opt_email = "--email,-m";
+const std::string opt_email_short = "-m";
 const std::string opt_offset = "offset";
-const std::string opt_id = "--id";
+const std::string opt_uid = "--uid";
 const std::string opt_message = "-m,--message";
 const std::string opt_message_short = "-m";
 const std::string opt_type = "-t,--type";
@@ -177,38 +177,22 @@ void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
 
     std::string desc{desc_from_opt_or_editor(cmd_push)};
 
-    if (CLI::Option* opt = cmd_push.get_option(opt_global_short); *opt) {
-        tt.new_task(id, Scope::global, type, desc);
+    Scope scope = Scope::local;
+    if (CLI::Option* opt = cmd_push.get_option(opt_global_short); *opt)
+        scope = Scope::global;
 
-        if (opt = cmd_push.get_option(opt_local_short); !*opt)
-            return;
-    }
-
-    tt.new_task(id, Scope::local, type, std::move(desc));
+    tt.new_task(id, scope, type, desc);
 }
 
 void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
 {
-    if (CLI::Option* opt = cmd_pop.get_option(opt_id); *opt) {
-        ID id = as<ID>(opt->as<u64>());
-
-        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        if (tt.exists<Scope::local>(id))
-            tt.resolve_task<Scope::local>(id);
-
-        if (tt.exists<Scope::global>(id))
-            tt.resolve_task<Scope::global>(id);
-
+    if (CLI::Option* opt = cmd_pop.get_option(opt_uid); *opt) {
+        tt.resolve_task(UID{opt->as<std::string>()});
         return;
     }
 
-    Task local_task = task_from_offset(tt, cmd_pop);
+    Task local_task{task_from_offset(tt, cmd_pop)};
     tt.resolve_task(local_task);
-
-    if (tt.exists<Scope::global>(local_task.id()))
-        tt.resolve_task<Scope::global>(local_task.id());
 }
 
 void log_task(const Task& task, u64 vid = -1)
@@ -216,8 +200,8 @@ void log_task(const Task& task, u64 vid = -1)
     if (vid != -1)
         print<yellow>("{:<3} ", vid);
 
+    print<yellow>("{}", task.for_log_scope());
     print<yellow>("{} ", task.for_log_id());
-    print<high_blue>("{} ", task.for_log_scope());
     print<high_blue>("{} ", task.for_log_type());
 
     switch (task.status()) { // clang-format off
@@ -277,102 +261,45 @@ void show_task(const Task& task)
 
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 {
-    if (CLI::Option* opt = cmd_show.get_option(opt_id); *opt) {
-        ID id = as<ID>(opt->as<u64>());
-
-        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        if (tt.exists<Scope::local>(id)) {
-            show_task(tt.get_task<Scope::local>(id));
-            println("");
-        }
-
-        if (tt.exists<Scope::global>(id))
-            show_task(tt.get_task<Scope::global>(id));
-
+    if (CLI::Option* opt = cmd_show.get_option(opt_uid); *opt) {
+        show_task(tt.get_task(UID{opt->as<std::string>()}));
         return;
     }
 
     Task task{task_from_offset(tt, cmd_show)};
     show_task(task);
-
-    if (tt.exists<Scope::global>(task.id())) {
-        println("");
-        show_task(tt.get_task<Scope::global>(task.id()));
-    }
 }
 
 void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_roll)
 {
-    if (CLI::Option* opt = cmd_roll.get_option(opt_id); *opt) {
-        ID id = as<ID>(opt->as<u64>());
-
-        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        if (tt.exists<Scope::local>(id))
-            tt.roll<Scope::local>(id);
-
-        if (tt.exists<Scope::global>(id))
-            tt.roll<Scope::global>(id);
-
+    if (CLI::Option* opt = cmd_roll.get_option(opt_uid); *opt) {
+        tt.roll(UID{opt->as<std::string>()});
         return;
     }
 
     Task task{task_from_offset(tt, cmd_roll)};
     tt.roll(task);
-
-    if (tt.exists<Scope::global>(task.id())) {
-        Task global_task{tt.get_task<Scope::global>(task.id())};
-        tt.roll(global_task);
-    }
 }
 
 void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
 {
-    if (CLI::Option* opt = cmd_rollback.get_option(opt_id); *opt) {
-        ID id = as<ID>(opt->as<u64>());
-
-        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        if (tt.exists<Scope::local>(id))
-            tt.rollback<Scope::local>(id);
-
-        if (tt.exists<Scope::global>(id))
-            tt.rollback<Scope::global>(id);
-
+    if (CLI::Option* opt = cmd_rollback.get_option(opt_uid); *opt) {
+        tt.rollback(UID{opt->as<std::string>()});
         return;
     }
 
     Task task{task_from_offset(tt, cmd_rollback)};
     tt.rollback(task);
-
-    if (tt.exists<Scope::global>(task.id())) {
-        Task global_task{tt.get_task<Scope::global>(task.id())};
-        tt.rollback(global_task);
-    }
 }
 
 void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
 {
     Task task;
 
-    if (CLI::Option* opt = cmd_amend.get_option(opt_id); *opt) {
-        ID id = as<ID>(opt->as<u64>());
-
-        if (!tt.exists<Scope::local>(id) && !tt.exists<Scope::global>(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        if (tt.exists<Scope::local>(id))
-            task = tt.get_task<Scope::local>(id);
-        else
-            task = tt.get_task<Scope::global>(id);
-    }
-    else {
+    if (CLI::Option* opt = cmd_amend.get_option(opt_uid); *opt)
+        task = tt.get_task(UID{opt->as<std::string>()});
+    else
         task = task_from_offset(tt, cmd_amend);
-    }
 
     Type type = task.type();
     if (CLI::Option* opt = cmd_amend.get_option(opt_type_short); *opt)
@@ -381,15 +308,8 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     std::string desc{desc_from_opt_or_editor(cmd_amend, task.desc())};
 
     task.set_type(type);
-    task.set_desc(desc);
+    task.set_desc(std::move(desc));
     tt.save_task(task);
-
-    if (task.scope() == Scope::local && tt.exists<Scope::global>(task.id())) {
-        Task global_task{tt.get_task<Scope::global>(task.id())};
-        global_task.set_type(type);
-        global_task.set_desc(std::move(desc));
-        tt.save_task(global_task);
-    }
 }
 
 void tt_main(const CLI::App& app)
@@ -448,22 +368,20 @@ int main(int argc, char* argv[])
     auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
     cmd_push->add_option(opt_message, "Message that will be written to the task.");
     cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
-    cmd_push->add_flag(opt_global, "Creates global task. You can set both g and l options.");
-    cmd_push->add_flag(opt_local, "Creates local task (default). You can set both g and l options.");
+    cmd_push->add_flag(opt_global, "Creates global task.");
+    cmd_push->add_flag(opt_local, "Creates local task (default).");
 
     /**
      * Pop subcommand.
      */
     auto* cmd_pop = app.add_subcommand(subcmd_pop, "Resolves task.")->alias("resolve");
     cmd_pop->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks. If coresponding global task exists, resolves it too.");
-    cmd_pop->add_option(opt_id, "Task id to pop (resolve).");
-    cmd_pop->add_flag(opt_global, "Resolves global task (default, if global task exist). You can set both g and l options.");
-    cmd_pop->add_flag(opt_local, "Resolves local task (default). You can set both g and l options.");
+    cmd_pop->add_option(opt_uid, "Task uid to pop (resolve).");
 
     /**
      * Log subcommand.
      */
-    auto* cmd_log = app.add_subcommand(subcmd_log, "Logs all unresolved tasks.");
+    auto* cmd_log = app.add_subcommand(subcmd_log, "Logs (unresolved by default) tasks.");
     cmd_log->add_flag(opt_all, "Logs all tasks.");
     cmd_log->add_flag(opt_global, "Logs global tasks.");
     cmd_log->add_flag(opt_local, "Logs local tasks.");
@@ -473,28 +391,28 @@ int main(int argc, char* argv[])
      */
     auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
     cmd_show->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_show->add_option(opt_id, "Task id.");
+    cmd_show->add_option(opt_uid, "Task uid.");
 
     /**
      * Roll subcommand.
      */
     auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
     cmd_roll->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_roll->add_option(opt_id, "Task id.");
+    cmd_roll->add_option(opt_uid, "Task uid.");
 
     /**
      * Rollback subcommand.
      */
     auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
     cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_rollback->add_option(opt_id, "Task id.");
+    cmd_rollback->add_option(opt_uid, "Task uid.");
 
     /**
      * Amend subcommand.
      */
     auto* cmd_amend = app.add_subcommand(subcmd_amend, "Replaces tasks message.");
     cmd_amend->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_amend->add_option(opt_id, "Task id.");
+    cmd_amend->add_option(opt_uid, "Task uid.");
     cmd_amend->add_option(opt_message, "Message that will be written to the task.");
     cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
 
