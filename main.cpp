@@ -196,11 +196,8 @@ void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
     tt.resolve_task(task);
 }
 
-void log_task(const Task& task, u64 vid = -1)
+void log_task(const Task& task)
 {
-    if (vid != -1)
-        print<yellow>("{:<3} ", vid);
-
     print<yellow>("{}", task.for_log_scope());
     print<yellow>("{} ", task.for_log_id());
     print<high_blue>("{} ", task.for_log_type());
@@ -213,6 +210,12 @@ void log_task(const Task& task, u64 vid = -1)
     } // clang-format on
 
     println("{}", task.for_log_desc());
+}
+
+void log_task(const Task& task, u64 vid)
+{
+    print<yellow>("{:<3} ", vid);
+    log_task(task);
 }
 
 void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
