@@ -269,6 +269,8 @@ public:
 
     UID(const class Task& task);
 
+    UID() = default;
+
     fs::path as_filename() const { return (global() ? "G" : "L") + ::as_string(m_id); }
 
     Scope scope() const noexcept { return m_scope; }
@@ -279,16 +281,59 @@ public:
 
     ID id() const noexcept { return m_id; }
 
-    static bool is_uid(const std::string& uid) noexcept
+    void set_scope(Scope scope) noexcept { m_scope = scope; }
+
+    void set_id(ID id) noexcept { m_id = id; }
+
+    static bool valid_uid(const std::string& uid) noexcept
     {
         return uid.size() > 1 && (uid.front() == 'G' || uid.front() == 'L') &&
                digits_only(std::string_view{uid.c_str() + 1, uid.size() - 1});
     }
 
+    bool valid() const noexcept
+    {
+        return (m_scope == Scope::local || m_scope == Scope::global) && as_num(m_id) > 0;
+    }
+
+    bool operator==(const UID& other) const noexcept
+    {
+        return m_scope == other.m_scope && m_id == other.m_id;
+    }
+
+    bool operator!=(const UID& other) const noexcept { return !(*this == other); }
+
 private:
     Scope m_scope;
     ID m_id;
 };
+
+inline void uid_to_fstream(std::ofstream& ofs, const UID& uid)
+{
+    ofs << (uid.global() ? 'G' : 'L') << as_num(uid.id()) << "\n";
+}
+
+inline std::ifstream& operator>>(std::ifstream& ifs, UID& uid)
+{
+    u8 scope;
+    u64 id;
+
+    ifs >> scope;
+    if (!ifs)
+        return ifs;
+
+    if (scope != 'G' && scope != 'L')
+        throw std::runtime_error{"Invalid task scope."};
+
+    uid.set_scope(scope == 'G' ? Scope::global : Scope::local);
+
+    ifs >> id;
+    if (!ifs)
+        return ifs;
+
+    uid.set_id(as<ID>(id));
+    return ifs;
+}
 
 class Task {
     friend inline std::ifstream& operator>>(std::ifstream& ifs, Task& task);
@@ -389,7 +434,7 @@ private:
 
 UID::UID(const Task& task) : m_scope{task.scope()}, m_id{task.id()} {}
 
-static void task_to_fstream(std::ofstream& ofs, const Task& task)
+inline void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
     ofs << as_num(task.id()) << "\n";
     ofs << as_num(task.scope()) << "\n";
@@ -398,7 +443,7 @@ static void task_to_fstream(std::ofstream& ofs, const Task& task)
     ofs << task.desc() << "\n";
 }
 
-static Task task_from_fstream(std::ifstream& ifs)
+inline Task task_from_fstream(std::ifstream& ifs)
 {
     ID id{};
     Scope scope{};
@@ -457,7 +502,7 @@ public:
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_global_dir);
         std::filesystem::create_directory(tasks_global_dir / user);
-        std::filesystem::create_directory(tasks_global_dir / user / refs_filename);
+        std::ofstream{tasks_global_dir / user / refs_filename};
 
         // std::ofstream mdfs{open_md_write()};
         // md_to_fstream(mdfs, initial_md);
@@ -516,8 +561,16 @@ public:
         std::vector<Task> tasks;
         tasks.reserve(1024);
 
+        if constexpr (scope == Scope::local) {
+            for (const UID& uid : get_task_refs()) {
+                Task task{get_task(uid)};
+                if (pred(task))
+                    tasks.emplace_back(std::move(task));
+            }
+        }
+
         for (const auto& entry : fs::directory_iterator{tasks_dir<scope>()}) {
-            if (!entry.is_regular_file())
+            if (entry.is_directory() || entry.path().filename() == refs_filename)
                 continue;
 
             Task task{get_task(entry.path())};
@@ -587,9 +640,9 @@ public:
         task_to_fstream(ofs, task);
     }
 
-    void new_task(ID id, Scope scope, Type type, std::string desc)
+    void new_task(Scope scope, Type type, std::string desc)
     {
-        save_task(Task{id, scope, type, Status::not_started, std::move(desc)});
+        save_task(Task{next_id(), scope, type, Status::not_started, std::move(desc)});
     }
 
     void resolve_task(Task& task) { change_task_status(task, Status::done); }
@@ -620,9 +673,48 @@ public:
         rollback(task);
     }
 
-    ID next_id() { return as<ID>(now_sys_ns()); }
+    std::vector<UID> get_task_refs() const
+    {
+        std::vector<UID> refs;
+        refs.reserve(1024);
+
+        std::ifstream ifs{task_refs_ifstream()};
+        UID uid;
+        while (ifs >> uid)
+            refs.emplace_back(std::move(uid));
+
+        return refs;
+    }
+
+    bool task_refs_contains(const std::vector<UID>& refs, const Task& task) const
+    {
+        const UID uid{task.uid()};
+        return std::find(refs.begin(), refs.end(), uid) != refs.end();
+    }
+
+    void add_task_ref(const Task& task)
+    {
+        std::vector<UID> task_refs{get_task_refs()};
+        if (task_refs_contains(task_refs, task))
+            throw std::runtime_error{"Task already assigned to user."};
+
+        std::ofstream ofs{task_refs_ofstream()};
+        uid_to_fstream(ofs, task.uid());
+    }
+
+    std::ofstream task_refs_ofstream() const
+    {
+        return std::ofstream{tasks_global_dir / m_user / refs_filename, std::ios::app};
+    }
+
+    std::ifstream task_refs_ifstream() const
+    {
+        return std::ifstream{tasks_global_dir / m_user / refs_filename};
+    }
 
 private:
+    ID next_id() { return as<ID>(now_sys_ns()); }
+
     // static std::ifstream open_md_read()
     // {
     //     if (!std::filesystem::exists(main_dir)) {

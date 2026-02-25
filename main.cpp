@@ -41,6 +41,7 @@ const std::string subcmd_show = "show";
 const std::string subcmd_roll = "roll";
 const std::string subcmd_rollback = "rollback";
 const std::string subcmd_amend = "amend";
+const std::string subcmd_take = "take";
 
 const std::string opt_name = "--name,-n";
 const std::string opt_name_short = "-n";
@@ -148,7 +149,7 @@ Task task_from_vuid(TaskTracker& tt, CLI::App& cmd)
 
     if (CLI::Option* opt = cmd.get_option(opt_vid_or_uid); *opt) {
         std::string vid_or_uid{opt->as<std::string>()};
-        if (UID::is_uid(vid_or_uid))
+        if (UID::valid_uid(vid_or_uid))
             return tt.get_task(UID{vid_or_uid});
 
         if (!digits_only(vid_or_uid))
@@ -175,8 +176,6 @@ void tt_cmd_init(CLI::App& cmd_init)
 
 void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
 {
-    ID id = tt.next_id();
-
     Type type{Type::task};
     if (CLI::Option* opt = cmd_push.get_option(opt_type_short); *opt)
         type = as<Type>(opt->as<u64>());
@@ -187,7 +186,7 @@ void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
     if (CLI::Option* opt = cmd_push.get_option(opt_global_short); *opt)
         scope = Scope::global;
 
-    tt.new_task(id, scope, type, desc);
+    tt.new_task(scope, type, desc);
 }
 
 void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
@@ -198,7 +197,11 @@ void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
 
 void log_task(const Task& task)
 {
-    print<yellow>("{}", task.for_log_scope());
+    if (task.global())
+        print<high_blue>("{}", task.for_log_scope());
+    else
+        print<yellow>("{}", task.for_log_scope());
+
     print<yellow>("{} ", task.for_log_id());
     print<high_blue>("{} ", task.for_log_type());
 
@@ -296,6 +299,16 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     tt.save_task(task);
 }
 
+void tt_cmd_take(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_take)
+{
+    Task task{task_from_vuid(tt, cmd_take)};
+
+    if (task.scope() == Scope::local)
+        throw std::runtime_error{"Task already assigned to user."};
+
+    tt.add_task_ref(task);
+}
+
 void tt_main(const CLI::App& app)
 {
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
@@ -323,6 +336,9 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_amend); *cmd)
         return tt_cmd_amend(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_take); *cmd)
+        return tt_cmd_take(tt, *cmd);
 }
 
 } // namespace
@@ -394,6 +410,12 @@ int main(int argc, char* argv[])
     cmd_amend->add_option(opt_vid_or_uid, "Task VID or UID.");
     cmd_amend->add_option(opt_message, "Message that will be written to the task.");
     cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+
+    /**
+     * Take subcommand.
+     */
+    auto* cmd_take = app.add_subcommand(subcmd_take, "Takes (assigns) task to current user.")->alias("assign");
+    cmd_take->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     app.require_subcommand();
 
