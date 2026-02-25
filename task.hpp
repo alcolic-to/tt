@@ -29,6 +29,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -117,12 +118,23 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
         std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
 }
 
+bool spaces_only(const std::string& s) noexcept
+{
+    return std::ranges::all_of(s, [](u8 c) { return std::isspace(c); });
+}
+
+template<class StringLike>
+bool digits_only(const StringLike& s) noexcept
+{
+    return std::ranges::all_of(s, [](u8 c) { return std::isdigit(c); });
+}
+
 enum class ID : u64 {};
 enum class Scope : u8 { global = 0, local = 1 };
 enum class Type : u8 { task = 0, bug = 1, feature = 2 };
 enum class Status : u8 { not_started = 0, in_progress = 1, done = 2 };
 
-enum class Offset : u64 {};
+enum class VID : u64 {};
 
 template<class T>
 constexpr T as(u64 value)
@@ -148,8 +160,8 @@ constexpr T as(u64 value)
 
         return Status(value);
     }
-    else if constexpr (std::is_same_v<T, Offset>) {
-        return Offset(value);
+    else if constexpr (std::is_same_v<T, VID>) {
+        return VID(value);
     }
     else
         static_assert(!"Invalid return type.");
@@ -266,6 +278,12 @@ public:
     bool local() const noexcept { return !global(); }
 
     ID id() const noexcept { return m_id; }
+
+    static bool is_uid(const std::string& uid) noexcept
+    {
+        return uid.size() > 1 && (uid.front() == 'G' || uid.front() == 'L') &&
+               digits_only(std::string_view{uid.c_str() + 1, uid.size() - 1});
+    }
 
 private:
     Scope m_scope;
@@ -525,7 +543,8 @@ public:
     {
         std::ifstream ifs{path};
         if (!ifs)
-            throw std::runtime_error{std::format("Task {} does not exist.", path.string())};
+            throw std::runtime_error{
+                std::format("Task {} does not exist.", path.filename().string())};
 
         return task_from_fstream(ifs);
     }
@@ -533,21 +552,21 @@ public:
     [[nodiscard]] Task get_task(UID uid) const { return get_task(task_path(uid)); }
 
     /**
-     * Returns non-resolved local task with provided offset.
-     * This kind of offset based task retrival is done in many commands.
-     * Offset can be seen with log command with current design.
+     * Returns non-resolved local task with provided VID.
+     * VID can be seen with log command with current design.
+     * This kind of VID based task retrival is done in many commands.
      */
-    [[nodiscard]] Task get_task(Offset offset) const
+    [[nodiscard]] Task get_task(VID vid) const
     {
         std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
         if (tasks.empty())
             throw std::runtime_error{"No non-resolved tasks."};
 
-        u64 off = as_num(offset);
-        if (off >= tasks.size())
-            throw std::runtime_error{"Offset to large."};
+        u64 vid_num = as_num(vid);
+        if (vid_num >= tasks.size())
+            throw std::runtime_error{"Invalid VID."};
 
-        return tasks[off];
+        return tasks[vid_num];
     }
 
     void change_task_status(Task& task, Status status)

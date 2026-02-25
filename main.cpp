@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <cctype>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -45,8 +46,7 @@ const std::string opt_name = "--name,-n";
 const std::string opt_name_short = "-n";
 const std::string opt_email = "--email,-m";
 const std::string opt_email_short = "-m";
-const std::string opt_offset = "offset";
-const std::string opt_uid = "--uid";
+const std::string opt_vid_or_uid = "vuid";
 const std::string opt_message = "-m,--message";
 const std::string opt_message_short = "-m";
 const std::string opt_type = "-t,--type";
@@ -100,11 +100,6 @@ int test_main() // NOLINT
     return 0;
 }
 
-bool spaces_only(const std::string& s)
-{
-    return std::ranges::all_of(s, [](u8 c) { return std::isspace(c); });
-}
-
 /**
  * Creates new file for message editing.
  * It spawns editor and waits for user to exit. After that, message is read from file.
@@ -144,14 +139,25 @@ std::string desc_from_opt_or_editor(CLI::App& cmd, const std::string& inital_des
     return desc;
 }
 
-Task task_from_offset(TaskTracker& tt, CLI::App& cmd)
+/**
+ * Returns task based on command line input (VID or UID).
+ */
+Task task_from_vuid(TaskTracker& tt, CLI::App& cmd)
 {
-    u64 offset = 0;
+    u64 vid = 0;
 
-    if (CLI::Option* opt = cmd.get_option(opt_offset); *opt)
-        offset = opt->as<u64>();
+    if (CLI::Option* opt = cmd.get_option(opt_vid_or_uid); *opt) {
+        std::string vid_or_uid{opt->as<std::string>()};
+        if (UID::is_uid(vid_or_uid))
+            return tt.get_task(UID{vid_or_uid});
 
-    return tt.get_task(as<Offset>(offset));
+        if (!digits_only(vid_or_uid))
+            throw std::runtime_error{"Invalid VID or UID."};
+
+        vid = opt->as<u64>();
+    }
+
+    return tt.get_task(as<VID>(vid));
 }
 
 void tt_cmd_init(CLI::App& cmd_init)
@@ -186,13 +192,8 @@ void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
 
 void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
 {
-    if (CLI::Option* opt = cmd_pop.get_option(opt_uid); *opt) {
-        tt.resolve_task(UID{opt->as<std::string>()});
-        return;
-    }
-
-    Task local_task{task_from_offset(tt, cmd_pop)};
-    tt.resolve_task(local_task);
+    Task task{task_from_vuid(tt, cmd_pop)};
+    tt.resolve_task(task);
 }
 
 void log_task(const Task& task, u64 vid = -1)
@@ -261,45 +262,25 @@ void show_task(const Task& task)
 
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 {
-    if (CLI::Option* opt = cmd_show.get_option(opt_uid); *opt) {
-        show_task(tt.get_task(UID{opt->as<std::string>()}));
-        return;
-    }
-
-    Task task{task_from_offset(tt, cmd_show)};
+    Task task{task_from_vuid(tt, cmd_show)};
     show_task(task);
 }
 
 void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_roll)
 {
-    if (CLI::Option* opt = cmd_roll.get_option(opt_uid); *opt) {
-        tt.roll(UID{opt->as<std::string>()});
-        return;
-    }
-
-    Task task{task_from_offset(tt, cmd_roll)};
+    Task task{task_from_vuid(tt, cmd_roll)};
     tt.roll(task);
 }
 
 void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
 {
-    if (CLI::Option* opt = cmd_rollback.get_option(opt_uid); *opt) {
-        tt.rollback(UID{opt->as<std::string>()});
-        return;
-    }
-
-    Task task{task_from_offset(tt, cmd_rollback)};
+    Task task{task_from_vuid(tt, cmd_rollback)};
     tt.rollback(task);
 }
 
 void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
 {
-    Task task;
-
-    if (CLI::Option* opt = cmd_amend.get_option(opt_uid); *opt)
-        task = tt.get_task(UID{opt->as<std::string>()});
-    else
-        task = task_from_offset(tt, cmd_amend);
+    Task task{task_from_vuid(tt, cmd_amend)};
 
     Type type = task.type();
     if (CLI::Option* opt = cmd_amend.get_option(opt_type_short); *opt)
@@ -375,8 +356,7 @@ int main(int argc, char* argv[])
      * Pop subcommand.
      */
     auto* cmd_pop = app.add_subcommand(subcmd_pop, "Resolves task.")->alias("resolve");
-    cmd_pop->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks. If coresponding global task exists, resolves it too.");
-    cmd_pop->add_option(opt_uid, "Task uid to pop (resolve).");
+    cmd_pop->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
      * Log subcommand.
@@ -390,29 +370,25 @@ int main(int argc, char* argv[])
      * Show subcommand.
      */
     auto* cmd_show = app.add_subcommand(subcmd_show, "Shows single task.");
-    cmd_show->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_show->add_option(opt_uid, "Task uid.");
+    cmd_show->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
      * Roll subcommand.
      */
     auto* cmd_roll = app.add_subcommand(subcmd_roll, "Rolls state by 1.");
-    cmd_roll->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_roll->add_option(opt_uid, "Task uid.");
+    cmd_roll->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
      * Rollback subcommand.
      */
     auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
-    cmd_rollback->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_rollback->add_option(opt_uid, "Task uid.");
+    cmd_rollback->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
      * Amend subcommand.
      */
     auto* cmd_amend = app.add_subcommand(subcmd_amend, "Replaces tasks message.");
-    cmd_amend->add_option(opt_offset, "Offset (zero based) from top of a non-resolved local tasks.");
-    cmd_amend->add_option(opt_uid, "Task uid.");
+    cmd_amend->add_option(opt_vid_or_uid, "Task VID or UID.");
     cmd_amend->add_option(opt_message, "Message that will be written to the task.");
     cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
 
