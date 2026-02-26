@@ -42,6 +42,7 @@ const std::string subcmd_roll = "roll";
 const std::string subcmd_rollback = "rollback";
 const std::string subcmd_amend = "amend";
 const std::string subcmd_take = "take";
+const std::string subcmd_untake = "untake";
 
 const std::string opt_name = "--name,-n";
 const std::string opt_name_short = "-n";
@@ -309,6 +310,16 @@ void tt_cmd_take(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_take)
     tt.add_task_ref(task);
 }
 
+void tt_cmd_untake(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
+{
+    Task task{task_from_vuid(tt, cmd_untake)};
+
+    if (task.scope() == Scope::local)
+        throw std::runtime_error{"Can take back local task."};
+
+    tt.remove_task_ref(task);
+}
+
 void tt_main(const CLI::App& app)
 {
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
@@ -339,6 +350,9 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_take); *cmd)
         return tt_cmd_take(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_untake); *cmd)
+        return tt_cmd_untake(tt, *cmd);
 }
 
 } // namespace
@@ -416,6 +430,12 @@ int main(int argc, char* argv[])
      */
     auto* cmd_take = app.add_subcommand(subcmd_take, "Takes (assigns) task to current user.")->alias("assign");
     cmd_take->add_option(opt_vid_or_uid, "Task VID or UID.");
+
+    /**
+     * Untake subcommand.
+     */
+    auto* cmd_untake = app.add_subcommand(subcmd_untake, "Untakes task from current user.")->alias("unassign");
+    cmd_untake->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     app.require_subcommand();
 

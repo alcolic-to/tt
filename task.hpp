@@ -696,15 +696,32 @@ public:
     {
         std::vector<UID> task_refs{get_task_refs()};
         if (task_refs_contains(task_refs, task))
-            throw std::runtime_error{"Task already assigned to user."};
+            throw std::runtime_error{std::format("Task already assigned to {}.", m_user)};
 
         std::ofstream ofs{task_refs_ofstream()};
         uid_to_fstream(ofs, task.uid());
     }
 
-    std::ofstream task_refs_ofstream() const
+    void remove_task_ref(const Task& task)
     {
-        return std::ofstream{tasks_global_dir / m_user / refs_filename, std::ios::app};
+        std::vector<UID> refs{get_task_refs()};
+        const UID uid{task.uid()};
+
+        const auto it = std::find(refs.begin(), refs.end(), uid);
+        if (it == refs.end())
+            throw std::runtime_error{std::format("Task not assigned to {}.", m_user)};
+
+        refs.erase(it);
+
+        std::ofstream ofs{task_refs_ofstream(true)};
+        for (const auto& ref : refs)
+            uid_to_fstream(ofs, ref);
+    }
+
+    std::ofstream task_refs_ofstream(bool trunc = false) const
+    {
+        return std::ofstream{tasks_global_dir / m_user / refs_filename,
+                             trunc ? std::ios::trunc : std::ios::app};
     }
 
     std::ifstream task_refs_ifstream() const
