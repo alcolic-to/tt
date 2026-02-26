@@ -31,7 +31,7 @@
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-avoid-return-with-void-value)
 
-const std::string version = "0.0.1";
+const std::string version = "0.0.2";
 
 const std::string subcmd_init = "init";
 const std::string subcmd_push = "push";
