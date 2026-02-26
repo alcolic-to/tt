@@ -1,0 +1,8 @@
+1772135248626730
+1
+0
+0
+Figure out what should be done with log command.
+
+Currently, -a means all resolved/unresolved/in progress tasks, and -gl means
+global and local, which is little confusing.
