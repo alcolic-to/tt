@@ -227,6 +227,52 @@ struct MD {
     }
 };
 
+struct Config {
+    Config(std::string username, std::string email)
+        : m_username{!username.empty() ? std::move(username) : default_username()}
+        , m_email{!email.empty() ? std::move(email) : default_email()}
+    {
+    }
+
+    Config(const fs::path& config_fpath)
+    {
+        std::ifstream ifs{config_fpath};
+        ifs >> m_username;
+        ifs >> m_email;
+    }
+
+    const std::string& username() { return m_username; }
+
+    const std::string& email() { return m_email; }
+
+    void set_username(std::string username) { m_username = std::move(username); }
+
+    void set_email(std::string email) { m_email = std::move(email); }
+
+    std::string m_username;
+    std::string m_email;
+};
+
+inline void config_to_file(const fs::path& fpath, const Config& config)
+{
+    std::ofstream ofs{fpath, std::ios::trunc};
+    ofs << config.m_username << "\n" << config.m_email;
+}
+
+inline Config config_from_file(const fs::path& fpath)
+{
+    if (!fs::exists(fpath))
+        throw std::runtime_error{
+            "TT config not present. Please run tt config (-n <username> -m <email>)."};
+
+    std::string username, email;
+
+    std::ifstream ifs{fpath};
+    ifs >> username >> email;
+
+    return Config{std::move(username), std::move(email)};
+}
+
 // static constexpr MD initial_md = {
 //     .m_id = as<ID>(1),
 // };
@@ -465,17 +511,11 @@ inline Task task_from_fstream(std::ifstream& ifs)
 class TaskTracker {
 public:
     explicit TaskTracker()
-    // : m_md{read_md()}
+        //  : m_md{read_md()}
+        : m_config{config_from_file(cfg_file)}
     {
         if (!fs::exists(main_dir))
             throw std::runtime_error{"Task tracker not initialized. Please run init."};
-
-        std::ifstream ifs{cfg_file};
-        ifs >> m_user;
-        ifs >> m_email;
-
-        if (m_user.empty() || m_email.empty())
-            throw std::runtime_error{"Unknown user info. Please run tt config."};
     }
 
     TaskTracker(const TaskTracker&) = delete;
@@ -494,6 +534,10 @@ public:
         // }
     }
 
+    const std::string& username() const noexcept { return m_config.m_username; }
+
+    const std::string& email() const noexcept { return m_config.m_email; }
+
     static void cmd_init(const std::string& user, const std::string& email)
     {
         if (std::filesystem::exists(main_dir))
@@ -502,19 +546,43 @@ public:
         std::filesystem::create_directory(main_dir);
         std::filesystem::create_directory(tasks_global_dir);
         std::filesystem::create_directory(tasks_global_dir / user);
-        std::ofstream{tasks_global_dir / user / refs_filename};
+
+        if (!std::filesystem::exists(tasks_global_dir / user / refs_filename))
+            std::ofstream{tasks_global_dir / user / refs_filename};
 
         // std::ofstream mdfs{open_md_write()};
         // md_to_fstream(mdfs, initial_md);
 
-        std::ofstream{cfg_file, std::ios::trunc} << user << "\n" << email;
+        if (!std::filesystem::exists(cfg_file))
+            std::ofstream{cfg_file, std::ios::trunc} << user << "\n" << email;
+    }
+
+    static Config cmd_config(const std::string& cmd_user, const std::string& cmd_email)
+    {
+        /* First time init. */
+        if (!fs::exists(cfg_file)) {
+            Config config{cmd_user, cmd_email};
+            config_to_file(cfg_file, config);
+            return config;
+        }
+
+        Config config{config_from_file(cfg_file)};
+
+        if (!cmd_user.empty())
+            config.set_username(cmd_user);
+
+        if (!cmd_email.empty())
+            config.set_email(cmd_email);
+
+        config_to_file(cfg_file, config);
+        return config;
     }
 
     template<Scope scope>
     fs::path tasks_dir() const noexcept
     {
         if constexpr (scope == Scope::local)
-            return tasks_global_dir / m_user;
+            return tasks_global_dir / username();
         else
             return tasks_global_dir;
     }
@@ -696,7 +764,7 @@ public:
     {
         std::vector<UID> task_refs{get_task_refs()};
         if (task_refs_contains(task_refs, task))
-            throw std::runtime_error{std::format("Task already assigned to {}.", m_user)};
+            throw std::runtime_error{std::format("Task already assigned to {}.", username())};
 
         std::ofstream ofs{task_refs_ofstream()};
         uid_to_fstream(ofs, task.uid());
@@ -709,7 +777,7 @@ public:
 
         const auto it = std::find(refs.begin(), refs.end(), uid);
         if (it == refs.end())
-            throw std::runtime_error{std::format("Task not assigned to {}.", m_user)};
+            throw std::runtime_error{std::format("Task not assigned to {}.", username())};
 
         refs.erase(it);
 
@@ -720,13 +788,13 @@ public:
 
     std::ofstream task_refs_ofstream(bool trunc = false) const
     {
-        return std::ofstream{tasks_global_dir / m_user / refs_filename,
+        return std::ofstream{tasks_global_dir / username() / refs_filename,
                              trunc ? std::ios::trunc : std::ios::app};
     }
 
     std::ifstream task_refs_ifstream() const
     {
-        return std::ifstream{tasks_global_dir / m_user / refs_filename};
+        return std::ifstream{tasks_global_dir / username() / refs_filename};
     }
 
 private:
@@ -759,8 +827,7 @@ private:
 private: // NOLINT
     MD m_md;
 
-    std::string m_user;
-    std::string m_email;
+    Config m_config;
 };
 
 // NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,

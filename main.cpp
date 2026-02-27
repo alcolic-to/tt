@@ -34,6 +34,8 @@
 const std::string version = "0.0.2";
 
 const std::string subcmd_init = "init";
+const std::string subcmd_config = "config";
+const std::string subcmd_whoami = "whoami";
 const std::string subcmd_push = "push";
 const std::string subcmd_pop = "pop";
 const std::string subcmd_log = "log";
@@ -173,6 +175,25 @@ void tt_cmd_init(CLI::App& cmd_init)
         email = opt->as<std::string>();
 
     return TaskTracker::cmd_init(name, email);
+}
+
+void tt_cmd_config(CLI::App& cmd_init)
+{
+    std::string name;
+    if (CLI::Option* opt = cmd_init.get_option(opt_name_short); *opt)
+        name = opt->as<std::string>();
+
+    std::string email;
+    if (CLI::Option* opt = cmd_init.get_option(opt_email_short); *opt)
+        email = opt->as<std::string>();
+
+    Config config{TaskTracker::cmd_config(name, email)};
+    println("{} <{}>", config.username(), config.email());
+}
+
+void tt_cmd_whoami(TaskTracker& tt, CLI::App& cmd_init)
+{
+    println("{} <{}>", tt.username(), tt.email());
 }
 
 void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
@@ -325,7 +346,13 @@ void tt_main(const CLI::App& app)
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
         return tt_cmd_init(*cmd);
 
+    if (auto* cmd = app.get_subcommand(subcmd_config); *cmd)
+        return tt_cmd_config(*cmd);
+
     TaskTracker tt;
+
+    if (auto* cmd = app.get_subcommand(subcmd_whoami); *cmd)
+        return tt_cmd_whoami(tt, *cmd);
 
     if (auto* cmd = app.get_subcommand(subcmd_push); *cmd)
         return tt_cmd_push(tt, *cmd);
@@ -377,10 +404,22 @@ int main(int argc, char* argv[])
     cmd_init->add_option(opt_email, "email for new user (default is 'none').");
 
     /**
+     * Config subcommand.
+     */
+    auto* cmd_config = app.add_subcommand(subcmd_config, "Configures user info.");
+    cmd_config->add_option(opt_name, "username for new user (default is read from env).");
+    cmd_config->add_option(opt_email, "email for new user (default is 'none').");
+
+    /**
+     * Whoami subcommand.
+     */
+    [[maybe_unused]] auto* cmd_whoami = app.add_subcommand(subcmd_whoami, "Prints user info.");
+
+    /**
      * Push subcommand.
      */
     auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
-    cmd_push->add_option(opt_message, "Message that will be written to the task.");
+    cmd_push->add_option(opt_message, "Message that will be written to the task. If not provided, editor will be opened.");
     cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
     cmd_push->add_flag(opt_global, "Creates global task.");
     cmd_push->add_flag(opt_local, "Creates local task (default).");
