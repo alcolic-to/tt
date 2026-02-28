@@ -239,13 +239,6 @@ struct Config {
     {
     }
 
-    Config(const fs::path& config_fpath)
-    {
-        std::ifstream ifs{config_fpath};
-        ifs >> m_username;
-        ifs >> m_email;
-    }
-
     const std::string& username() { return m_username; }
 
     const std::string& email() { return m_email; }
@@ -442,7 +435,7 @@ public:
         m_status = as<Status>(as_num(m_status) + 1);
     }
 
-    void rollback_status()
+    void rollb_status()
     {
         if (status() == Status::not_started)
             throw std::runtime_error{"Cannot rollback task with status not started."};
@@ -540,7 +533,11 @@ public:
         : m_config{config_from_file(cfg_file)}
     {
         if (!fs::exists(main_dir))
-            throw std::runtime_error{"Task tracker not initialized. Please run init."};
+            throw std::runtime_error{"TT not initialized. Please run init."};
+
+        if (!fs::exists(tasks_global_dir / username()))
+            throw std::runtime_error{
+                std::format("User {} does not exist. Please run tt register.", username())};
     }
 
     TaskTracker(const TaskTracker&) = delete;
@@ -563,28 +560,9 @@ public:
 
     const std::string& email() const noexcept { return m_config.m_email; }
 
-    static void cmd_init(const std::string& user, const std::string& email)
-    {
-        if (std::filesystem::exists(main_dir))
-            throw std::runtime_error{"Task tracker already initialized."};
-
-        std::filesystem::create_directory(main_dir);
-        std::filesystem::create_directory(tasks_global_dir);
-        std::filesystem::create_directory(tasks_global_dir / user);
-
-        if (!std::filesystem::exists(tasks_global_dir / user / refs_filename))
-            std::ofstream{tasks_global_dir / user / refs_filename};
-
-        // std::ofstream mdfs{open_md_write()};
-        // md_to_fstream(mdfs, initial_md);
-
-        if (!std::filesystem::exists(cfg_file))
-            std::ofstream{cfg_file, std::ios::trunc} << user << "\n" << email;
-    }
-
     static Config cmd_config(const std::string& cmd_user, const std::string& cmd_email)
     {
-        /* First time init. */
+        /* First time config init. */
         if (!fs::exists(cfg_file)) {
             Config config{cmd_user, cmd_email};
             config_to_file(cfg_file, config);
@@ -601,6 +579,36 @@ public:
 
         config_to_file(cfg_file, config);
         return config;
+    }
+
+    static void cmd_init()
+    {
+        Config config{config_from_file(cfg_file)};
+
+        if (fs::exists(main_dir))
+            throw std::runtime_error{
+                "TT already initialized. If you are new user, please run tt register."};
+
+        fs::create_directory(main_dir);
+        fs::create_directory(tasks_global_dir);
+        fs::create_directory(tasks_global_dir / config.username());
+
+        std::ofstream{tasks_global_dir / config.username() / refs_filename, std::ios::app};
+
+        // std::ofstream mdfs{open_md_write()};
+        // md_to_fstream(mdfs, initial_md);
+    }
+
+    static void cmd_register(std::string username, std::string email)
+    {
+        Config config{!username.empty() ? Config{std::move(username), std::move(email)} :
+                                          config_from_file(cfg_file)};
+
+        if (!fs::exists(main_dir))
+            throw std::runtime_error{"TT not initialized. Please run init."};
+
+        fs::create_directory(tasks_global_dir / config.username());
+        std::ofstream{tasks_global_dir / config.username() / refs_filename, std::ios::app};
     }
 
     template<Scope scope>
@@ -682,7 +690,7 @@ public:
     template<Scope scope>
     bool exists(UID uid) const
     {
-        return std::filesystem::exists(task_path(uid));
+        return fs::exists(task_path(uid));
     }
 
     [[nodiscard]] Task get_task(const fs::path& path) const
@@ -752,22 +760,10 @@ public:
         save_task(task);
     }
 
-    void roll(UID uid)
+    void rollb(Task& task)
     {
-        Task task{get_task(uid)};
-        roll(task);
-    }
-
-    void rollback(Task& task)
-    {
-        task.rollback_status();
+        task.rollb_status();
         save_task(task);
-    }
-
-    void rollback(UID uid)
-    {
-        Task task{get_task(uid)};
-        rollback(task);
     }
 
     std::vector<UID> get_task_refs() const
@@ -826,12 +822,24 @@ public:
         return std::ifstream{tasks_global_dir / username() / refs_filename};
     }
 
+    /**
+     * Switches context to other user (provided config). This is created only for code reusability.
+     */
+    void switch_context(Config config)
+    {
+        m_config = config;
+
+        if (!fs::exists(tasks_global_dir / username()))
+            throw std::runtime_error{
+                std::format("User {} does not exist. Please run tt register.", username())};
+    }
+
 private:
     ID next_id() { return as<ID>(now_sys_ns()); }
 
     // static std::ifstream open_md_read()
     // {
-    //     if (!std::filesystem::exists(main_dir)) {
+    //     if (!fs::exists(main_dir)) {
     //         if constexpr (!dev)
     //             throw std::runtime_error{"Task tracker not initialized. Please run init."};
 

@@ -35,19 +35,22 @@ const std::string version = "0.0.2";
 
 const std::string subcmd_init = "init";
 const std::string subcmd_config = "config";
+const std::string subcmd_register = "register";
 const std::string subcmd_whoami = "whoami";
 const std::string subcmd_push = "push";
 const std::string subcmd_pop = "pop";
 const std::string subcmd_log = "log";
 const std::string subcmd_show = "show";
 const std::string subcmd_roll = "roll";
-const std::string subcmd_rollback = "rollback";
+const std::string subcmd_rollb = "rollb";
 const std::string subcmd_amend = "amend";
 const std::string subcmd_take = "take";
-const std::string subcmd_untake = "untake";
+const std::string subcmd_takeb = "takeb";
+const std::string subcmd_assign = "assign";
+const std::string subcmd_assignb = "assignb";
 
-const std::string opt_name = "--name,-n";
-const std::string opt_name_short = "-n";
+const std::string opt_username = "--username,-n";
+const std::string opt_username_short = "-n";
 const std::string opt_email = "--email,-m";
 const std::string opt_email_short = "-m";
 const std::string opt_vid_or_uid = "vuid";
@@ -63,6 +66,8 @@ const std::string opt_local = "--local,-l";
 const std::string opt_local_short = "-l";
 const std::string opt_worker = "--worker,-w";
 const std::string opt_worker_short = "-w";
+
+const std::string req_username = "username";
 
 const std::string default_editor = "vim";
 const std::string default_editor_message =
@@ -166,31 +171,36 @@ Task task_from_vuid(TaskTracker& tt, CLI::App& cmd)
     return tt.get_task(as<VID>(vid));
 }
 
-void tt_cmd_init(CLI::App& cmd_init)
+void tt_cmd_config(CLI::App& cmd_config)
 {
-    std::string name{default_username()};
-    if (CLI::Option* opt = cmd_init.get_option(opt_name_short); *opt)
-        name = opt->as<std::string>();
-
-    std::string email{default_email()};
-    if (CLI::Option* opt = cmd_init.get_option(opt_email_short); *opt)
-        email = opt->as<std::string>();
-
-    return TaskTracker::cmd_init(name, email);
-}
-
-void tt_cmd_config(CLI::App& cmd_init)
-{
-    std::string name;
-    if (CLI::Option* opt = cmd_init.get_option(opt_name_short); *opt)
-        name = opt->as<std::string>();
+    std::string username;
+    if (CLI::Option* opt = cmd_config.get_option(opt_username_short); *opt)
+        username = opt->as<std::string>();
 
     std::string email;
-    if (CLI::Option* opt = cmd_init.get_option(opt_email_short); *opt)
+    if (CLI::Option* opt = cmd_config.get_option(opt_email_short); *opt)
         email = opt->as<std::string>();
 
-    Config config{TaskTracker::cmd_config(name, email)};
+    Config config{TaskTracker::cmd_config(username, email)};
     println("{} <{}>", config.username(), config.email());
+}
+
+void tt_cmd_init(CLI::App& cmd_init)
+{
+    TaskTracker::cmd_init();
+}
+
+void tt_cmd_register(CLI::App& cmd_register)
+{
+    std::string username;
+    if (CLI::Option* opt = cmd_register.get_option(opt_username_short); *opt)
+        username = opt->as<std::string>();
+
+    std::string email;
+    if (CLI::Option* opt = cmd_register.get_option(opt_email_short); *opt)
+        email = opt->as<std::string>();
+
+    TaskTracker::cmd_register(std::move(username), std::move(email));
 }
 
 void tt_cmd_whoami(TaskTracker& tt, CLI::App& cmd_init)
@@ -309,10 +319,10 @@ void tt_cmd_roll(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_roll)
     tt.roll(task);
 }
 
-void tt_cmd_rollback(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
+void tt_cmd_rollb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rollback)
 {
     Task task{task_from_vuid(tt, cmd_rollback)};
-    tt.rollback(task);
+    tt.rollb(task);
 }
 
 void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
@@ -348,7 +358,7 @@ void tt_cmd_take(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_take)
     tt.save_task(task);
 }
 
-void tt_cmd_untake(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
+void tt_cmd_takeb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
 {
     Task task{task_from_vuid(tt, cmd_untake)};
 
@@ -361,13 +371,51 @@ void tt_cmd_untake(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
     tt.save_task(task);
 }
 
+void tt_cmd_assign(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assign)
+{
+    Task task{task_from_vuid(tt, cmd_assign)};
+
+    if (task.scope() == Scope::local)
+        throw std::runtime_error{"Can not assign local task."};
+
+    if (CLI::Option* opt = cmd_assign.get_option(req_username); *opt)
+        tt.switch_context({opt->as<std::string>(), ""});
+
+    tt.add_task_ref(task);
+
+    task.set_worker(tt.username());
+    tt.save_task(task);
+}
+
+void tt_cmd_assignb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assignb)
+{
+    Task task{task_from_vuid(tt, cmd_assignb)};
+
+    if (task.scope() == Scope::local)
+        throw std::runtime_error{"Can not assign back local task."};
+
+    if (task.worker().empty())
+        throw std::runtime_error{"Task not assigned."};
+
+    if (tt.username() != task.worker())
+        tt.switch_context({task.worker(), ""});
+
+    tt.remove_task_ref(task);
+
+    task.unset_worker();
+    tt.save_task(task);
+}
+
 void tt_main(const CLI::App& app)
 {
+    if (auto* cmd = app.get_subcommand(subcmd_config); *cmd)
+        return tt_cmd_config(*cmd);
+
     if (auto* cmd = app.get_subcommand(subcmd_init); *cmd)
         return tt_cmd_init(*cmd);
 
-    if (auto* cmd = app.get_subcommand(subcmd_config); *cmd)
-        return tt_cmd_config(*cmd);
+    if (auto* cmd = app.get_subcommand(subcmd_register); *cmd)
+        return tt_cmd_register(*cmd);
 
     TaskTracker tt;
 
@@ -389,8 +437,8 @@ void tt_main(const CLI::App& app)
     if (auto* cmd = app.get_subcommand(subcmd_roll); *cmd)
         return tt_cmd_roll(tt, *cmd);
 
-    if (auto* cmd = app.get_subcommand(subcmd_rollback); *cmd)
-        return tt_cmd_rollback(tt, *cmd);
+    if (auto* cmd = app.get_subcommand(subcmd_rollb); *cmd)
+        return tt_cmd_rollb(tt, *cmd);
 
     if (auto* cmd = app.get_subcommand(subcmd_amend); *cmd)
         return tt_cmd_amend(tt, *cmd);
@@ -398,8 +446,14 @@ void tt_main(const CLI::App& app)
     if (auto* cmd = app.get_subcommand(subcmd_take); *cmd)
         return tt_cmd_take(tt, *cmd);
 
-    if (auto* cmd = app.get_subcommand(subcmd_untake); *cmd)
-        return tt_cmd_untake(tt, *cmd);
+    if (auto* cmd = app.get_subcommand(subcmd_takeb); *cmd)
+        return tt_cmd_takeb(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_assign); *cmd)
+        return tt_cmd_assign(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_assignb); *cmd)
+        return tt_cmd_assignb(tt, *cmd);
 }
 
 } // namespace
@@ -419,16 +473,21 @@ int main(int argc, char* argv[])
     /**
      * Init subcommand.
      */
-    auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
-    cmd_init->add_option(opt_name, "username for new user (default is read from env).");
-    cmd_init->add_option(opt_email, "email for new user (default is 'none').");
+    [[maybe_unused]] auto* cmd_init = app.add_subcommand(subcmd_init, "Initializes task tracker.");
 
     /**
      * Config subcommand.
      */
     auto* cmd_config = app.add_subcommand(subcmd_config, "Configures user info.");
-    cmd_config->add_option(opt_name, "username for new user (default is read from env).");
+    cmd_config->add_option(opt_username, "username for new user (default is read from env).");
     cmd_config->add_option(opt_email, "email for new user (default is 'none').");
+
+    /**
+     * Register subcommand.
+     */
+    auto* cmd_register = app.add_subcommand(subcmd_register, "Registers new user to an existing TT repo.");
+    cmd_register->add_option(opt_username, "username for new user (default is read from config).");
+    cmd_register->add_option(opt_email, "email for new user (default is read from config).");
 
     /**
      * Whoami subcommand.
@@ -472,9 +531,9 @@ int main(int argc, char* argv[])
     cmd_roll->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
-     * Rollback subcommand.
+     * Rollb subcommand.
      */
-    auto* cmd_rollback = app.add_subcommand(subcmd_rollback, "Rolls back state by 1.");
+    auto* cmd_rollback = app.add_subcommand(subcmd_rollb, "Rolls back state by 1.");
     cmd_rollback->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
@@ -489,14 +548,27 @@ int main(int argc, char* argv[])
     /**
      * Take subcommand.
      */
-    auto* cmd_take = app.add_subcommand(subcmd_take, "Takes (assigns) task to current user.")->alias("assign");
+    auto* cmd_take = app.add_subcommand(subcmd_take, "Takes (assigns) task to current user.");
     cmd_take->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     /**
-     * Untake subcommand.
+     * Takeb subcommand.
      */
-    auto* cmd_untake = app.add_subcommand(subcmd_untake, "Untakes task from current user.")->alias("unassign");
+    auto* cmd_untake = app.add_subcommand(subcmd_takeb, "Takes back (unassigns) task.");
     cmd_untake->add_option(opt_vid_or_uid, "Task VID or UID.");
+
+    /**
+     * Assign subcommand.
+     */
+    auto* cmd_assign = app.add_subcommand(subcmd_assign, "Assigns task to worker.");
+    cmd_assign->add_option(opt_vid_or_uid, "Task VID or UID.");
+    cmd_assign->add_option(req_username, "username (current user by default).")->required(true);
+
+    /**
+     * Assignb subcommand.
+     */
+    auto* cmd_assignb = app.add_subcommand(subcmd_assignb, "Assigns back (unassigns) task from user.");
+    cmd_assignb->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     app.require_subcommand();
 
