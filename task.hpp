@@ -106,7 +106,7 @@ inline const fs::path msg_file = main_dir / "desc_msg";      /* .tt/desc_msg */
 
 inline const fs::path cfg_file = home_dir() / ".ttconfig";   /* ~/.ttconfig  */
 
-inline const fs::path refs_filename = "refs";                /* refs filename, located in .tt/<user>/refs */
+inline const fs::path refs_filename = "refs";                /* refs filename, located in .tt/tasks/<user>/refs */
 /* clang-format on */
 
 template<class T>
@@ -232,21 +232,23 @@ struct MD {
     }
 };
 
-struct Config {
+class Config {
+public:
     Config(std::string username, std::string email)
         : m_username{!username.empty() ? std::move(username) : default_username()}
         , m_email{!email.empty() ? std::move(email) : default_email()}
     {
     }
 
-    const std::string& username() { return m_username; }
+    const std::string& username() const noexcept { return m_username; }
 
-    const std::string& email() { return m_email; }
+    const std::string& email() const noexcept { return m_email; }
 
     void set_username(std::string username) { m_username = std::move(username); }
 
     void set_email(std::string email) { m_email = std::move(email); }
 
+private:
     std::string m_username;
     std::string m_email;
 };
@@ -254,7 +256,7 @@ struct Config {
 inline void config_to_file(const fs::path& fpath, const Config& config)
 {
     std::ofstream ofs{fpath, std::ios::trunc};
-    ofs << config.m_username << "\n" << config.m_email;
+    ofs << config.username() << "\n" << config.email();
 }
 
 inline Config config_from_file(const fs::path& fpath)
@@ -556,9 +558,9 @@ public:
         // }
     }
 
-    const std::string& username() const noexcept { return m_config.m_username; }
+    const std::string& username() const noexcept { return m_config.username(); }
 
-    const std::string& email() const noexcept { return m_config.m_email; }
+    const std::string& email() const noexcept { return m_config.email(); }
 
     static Config cmd_config(const std::string& cmd_user, const std::string& cmd_email)
     {
@@ -607,8 +609,23 @@ public:
         if (!fs::exists(main_dir))
             throw std::runtime_error{"TT not initialized. Please run init."};
 
+        if (fs::exists(tasks_global_dir / config.username()))
+            throw std::runtime_error{std::format("User {} already registered.", config.username())};
+
         fs::create_directory(tasks_global_dir / config.username());
         std::ofstream{tasks_global_dir / config.username() / refs_filename, std::ios::app};
+    }
+
+    static std::vector<Config> users()
+    {
+        std::vector<Config> users;
+        users.reserve(1024);
+
+        for (const auto& entry : fs::directory_iterator{tasks_global_dir})
+            if (entry.is_directory())
+                users.emplace_back(entry.path().filename(), "");
+
+        return users;
     }
 
     template<Scope scope>

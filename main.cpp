@@ -36,6 +36,7 @@ const std::string version = "0.0.2";
 const std::string subcmd_init = "init";
 const std::string subcmd_config = "config";
 const std::string subcmd_register = "register";
+const std::string subcmd_users = "users";
 const std::string subcmd_whoami = "whoami";
 const std::string subcmd_push = "push";
 const std::string subcmd_pop = "pop";
@@ -201,6 +202,12 @@ void tt_cmd_register(CLI::App& cmd_register)
         email = opt->as<std::string>();
 
     TaskTracker::cmd_register(std::move(username), std::move(email));
+}
+
+void tt_cmd_users(CLI::App& cmd_register)
+{
+    for (const Config& user : TaskTracker::users())
+        println("{}", user.username());
 }
 
 void tt_cmd_whoami(TaskTracker& tt, CLI::App& cmd_init)
@@ -417,6 +424,9 @@ void tt_main(const CLI::App& app)
     if (auto* cmd = app.get_subcommand(subcmd_register); *cmd)
         return tt_cmd_register(*cmd);
 
+    if (auto* cmd = app.get_subcommand(subcmd_users); *cmd)
+        return tt_cmd_users(*cmd);
+
     TaskTracker tt;
 
     if (auto* cmd = app.get_subcommand(subcmd_whoami); *cmd)
@@ -488,6 +498,11 @@ int main(int argc, char* argv[])
     auto* cmd_register = app.add_subcommand(subcmd_register, "Registers new user to an existing TT repo.");
     cmd_register->add_option(opt_username, "username for new user (default is read from config).");
     cmd_register->add_option(opt_email, "email for new user (default is read from config).");
+
+    /**
+     * Users subcommand.
+     */
+    [[maybe_unused]] auto* cmd_users= app.add_subcommand(subcmd_users, "Lists all users.");
 
     /**
      * Whoami subcommand.
