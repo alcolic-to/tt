@@ -61,6 +61,8 @@ const std::string opt_global = "--global,-g";
 const std::string opt_global_short = "-g";
 const std::string opt_local = "--local,-l";
 const std::string opt_local_short = "-l";
+const std::string opt_worker = "--worker,-w";
+const std::string opt_worker_short = "-w";
 
 const std::string default_editor = "vim";
 const std::string default_editor_message =
@@ -208,7 +210,11 @@ void tt_cmd_push(TaskTracker& tt, CLI::App& cmd_push)
     if (CLI::Option* opt = cmd_push.get_option(opt_global_short); *opt)
         scope = Scope::global;
 
-    tt.new_task(scope, type, desc);
+    std::string worker;
+    if (CLI::Option* opt = cmd_push.get_option(opt_worker_short); *opt)
+        worker = opt->as<std::string>();
+
+    tt.new_task(scope, type, worker, desc);
 }
 
 void tt_cmd_pop(TaskTracker& tt, CLI::App& cmd_pop)
@@ -275,6 +281,9 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
 void show_task(const Task& task)
 {
     println<yellow>("{}", task.for_show_id());
+    if (task.worker() != default_worker())
+        println("{}\n", task.worker());
+
     println<high_blue>("{}", task.for_show_scope());
     println<high_blue>("{}", task.for_show_type());
 
@@ -314,9 +323,14 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     if (CLI::Option* opt = cmd_amend.get_option(opt_type_short); *opt)
         type = as<Type>(opt->as<u64>());
 
+    std::string worker = task.worker();
+    if (CLI::Option* opt = cmd_amend.get_option(opt_worker_short); *opt)
+        worker = opt->as<std::string>();
+
     std::string desc{desc_from_opt_or_editor(cmd_amend, task.desc())};
 
     task.set_type(type);
+    task.set_worker(std::move(worker));
     task.set_desc(std::move(desc));
     tt.save_task(task);
 }
@@ -329,6 +343,9 @@ void tt_cmd_take(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_take)
         throw std::runtime_error{"Task already assigned to user."};
 
     tt.add_task_ref(task);
+
+    task.set_worker(tt.username());
+    tt.save_task(task);
 }
 
 void tt_cmd_untake(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
@@ -336,9 +353,12 @@ void tt_cmd_untake(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_untake)
     Task task{task_from_vuid(tt, cmd_untake)};
 
     if (task.scope() == Scope::local)
-        throw std::runtime_error{"Can take back local task."};
+        throw std::runtime_error{"Can not take back local task."};
 
     tt.remove_task_ref(task);
+
+    task.unset_worker();
+    tt.save_task(task);
 }
 
 void tt_main(const CLI::App& app)
@@ -421,6 +441,7 @@ int main(int argc, char* argv[])
     auto* cmd_push = app.add_subcommand(subcmd_push, "Creates new task.")->alias("new");
     cmd_push->add_option(opt_message, "Message that will be written to the task. If not provided, editor will be opened.");
     cmd_push->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+    cmd_push->add_option(opt_worker, "Task worker.");
     cmd_push->add_flag(opt_global, "Creates global task.");
     cmd_push->add_flag(opt_local, "Creates local task (default).");
 
@@ -463,6 +484,7 @@ int main(int argc, char* argv[])
     cmd_amend->add_option(opt_vid_or_uid, "Task VID or UID.");
     cmd_amend->add_option(opt_message, "Message that will be written to the task.");
     cmd_amend->add_option(opt_type, "Task type (0 -> task, 1 -> bug, 2 -> feature).");
+    cmd_amend->add_option(opt_worker, "Task worker.");
 
     /**
      * Take subcommand.

@@ -93,6 +93,11 @@ inline std::string default_email()
     return "none";
 }
 
+inline std::string default_worker()
+{
+    return "none";
+}
+
 /* clang-format off */
 inline const fs::path main_dir = ".tt";                      /* .tt/         */
 inline const fs::path tasks_global_dir = main_dir / "tasks"; /* .tt/tasks/   */
@@ -387,11 +392,14 @@ class Task {
 public:
     Task() = default;
 
-    Task(ID id, Scope scope, Type type, Status status, std::string desc)
+    Task(ID id, Scope scope, Type type, Status status, std::string author, std::string worker,
+         std::string desc)
         : m_id{id}
         , m_scope{scope}
         , m_type{type}
         , m_status{status}
+        , m_author{std::move(author)}
+        , m_worker{std::move(worker)}
         , m_desc{std::move(desc)}
     {
     }
@@ -404,6 +412,10 @@ public:
 
     [[nodiscard]] Status status() const noexcept { return m_status; }
 
+    [[nodiscard]] const std::string& author() const noexcept { return m_author; }
+
+    [[nodiscard]] const std::string& worker() const noexcept { return m_worker; }
+
     [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
     [[nodiscard]] usize desc_size() const noexcept { return m_desc.size(); }
@@ -415,6 +427,10 @@ public:
     void set_type(Type t) { m_type = t; }
 
     void set_status(Status s) { m_status = s; }
+
+    void set_worker(std::string worker) { m_worker = std::move(worker); }
+
+    void unset_worker() { m_worker = default_worker(); }
 
     void set_desc(std::string desc) { m_desc = std::move(desc); }
 
@@ -460,8 +476,10 @@ public:
     [[nodiscard]] std::string for_show_scope() const noexcept { return as_string<show::long_>(scope()); }
     [[nodiscard]] std::string for_show_type() const noexcept { return as_string<show::long_>(type()); }
     [[nodiscard]] std::string for_show_status() const noexcept { return as_string<show::long_>(status()); }
+    [[nodiscard]] std::string for_show_author() const noexcept { return author(); }
+    [[nodiscard]] std::string for_show_worker() const noexcept { return worker(); }
     [[nodiscard]] std::string for_show_desc() const noexcept { return desc(); }
-    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n{}\n\n{}", for_show_id(), for_show_scope(), for_show_type(), for_show_status(), for_show_desc()); }
+    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n{}\n{}\n{}\n\n{}", for_show_id(), for_show_scope(), for_show_type(), for_show_status(), for_show_author(), for_show_worker(), for_show_desc()); }
 
     // clang-format on
 
@@ -475,6 +493,8 @@ private:
     Scope m_scope;
     Type m_type;
     Status m_status;
+    std::string m_author;
+    std::string m_worker;
     std::string m_desc;
 };
 
@@ -486,6 +506,8 @@ inline void task_to_fstream(std::ofstream& ofs, const Task& task)
     ofs << as_num(task.scope()) << "\n";
     ofs << as_num(task.type()) << "\n";
     ofs << as_num(task.status()) << "\n";
+    ofs << task.author() << "\n";
+    ofs << task.worker() << "\n";
     ofs << task.desc() << "\n";
 }
 
@@ -495,17 +517,20 @@ inline Task task_from_fstream(std::ifstream& ifs)
     Scope scope{};
     Type type{};
     Status status{};
+    std::string author, worker;
 
     u64 n{};
     ifs >> n, id = as<ID>(n), ifs >> std::ws;
     ifs >> n, scope = as<Scope>(n), ifs >> std::ws;
     ifs >> n, type = as<Type>(n), ifs >> std::ws;
     ifs >> n, status = as<Status>(n), ifs >> std::ws;
+    ifs >> author, ifs >> std::ws;
+    ifs >> worker, ifs >> std::ws;
 
-    std::string text{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
-    text.pop_back(); // remove \n
+    std::string desc{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
+    desc.pop_back(); // remove \n
 
-    return Task{id, scope, type, status, std::move(text)};
+    return Task{id, scope, type, status, std::move(author), std::move(worker), std::move(desc)};
 }
 
 class TaskTracker {
@@ -708,9 +733,13 @@ public:
         task_to_fstream(ofs, task);
     }
 
-    void new_task(Scope scope, Type type, std::string desc)
+    void new_task(Scope scope, Type type, std::string worker, std::string desc)
     {
-        save_task(Task{next_id(), scope, type, Status::not_started, std::move(desc)});
+        if (worker.empty())
+            worker = scope == Scope::local ? username() : default_worker();
+
+        save_task(Task{next_id(), scope, type, Status::not_started, username(), std::move(worker),
+                       std::move(desc)});
     }
 
     void resolve_task(Task& task) { change_task_status(task, Status::done); }

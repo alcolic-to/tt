@@ -2,6 +2,8 @@
 1
 0
 0
+alcolic
+alcolic
 Figure out what should be done with log command.
 
 Currently, -a means all resolved/unresolved/in progress tasks, and -gl means
