@@ -49,6 +49,7 @@ const std::string subcmd_take = "take";
 const std::string subcmd_takeb = "takeb";
 const std::string subcmd_assign = "assign";
 const std::string subcmd_assignb = "assignb";
+const std::string subcmd_rm = "rm";
 
 const std::string opt_username = "--username,-n";
 const std::string opt_username_short = "-n";
@@ -401,7 +402,7 @@ void tt_cmd_assignb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assignb)
     if (task.scope() == Scope::local)
         throw std::runtime_error{"Can not assign back local task."};
 
-    if (task.worker().empty())
+    if (task.worker() == default_worker())
         throw std::runtime_error{"Task not assigned."};
 
     if (tt.username() != task.worker())
@@ -411,6 +412,17 @@ void tt_cmd_assignb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assignb)
 
     task.unset_worker();
     tt.save_task(task);
+}
+
+void tt_cmd_rm(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rm)
+{
+    Task task{task_from_vuid(tt, cmd_rm)};
+
+    if (task.worker() != default_worker() && tt.username() != task.worker())
+        tt.switch_context({task.worker(), ""});
+
+    tt.remove_task_ref<false>(task);
+    tt.rm_task(task);
 }
 
 void tt_main(const CLI::App& app)
@@ -464,6 +476,9 @@ void tt_main(const CLI::App& app)
 
     if (auto* cmd = app.get_subcommand(subcmd_assignb); *cmd)
         return tt_cmd_assignb(tt, *cmd);
+
+    if (auto* cmd = app.get_subcommand(subcmd_rm); *cmd)
+        return tt_cmd_rm(tt, *cmd);
 }
 
 } // namespace
@@ -584,6 +599,12 @@ int main(int argc, char* argv[])
      */
     auto* cmd_assignb = app.add_subcommand(subcmd_assignb, "Assigns back (unassigns) task from user.");
     cmd_assignb->add_option(opt_vid_or_uid, "Task VID or UID.");
+
+    /**
+     * Rm subcommand.
+     */
+    auto* cmd_rm = app.add_subcommand(subcmd_rm, "Removes (deletes) task.");
+    cmd_rm->add_option(opt_vid_or_uid, "Task VID or UID.");
 
     app.require_subcommand();
 

@@ -740,6 +740,8 @@ public:
         return tasks[vid_num];
     }
 
+    void rm_task(const Task& task) { fs::remove(task_path(task)); }
+
     void change_task_status(Task& task, Status status)
     {
         task.set_status(status);
@@ -812,14 +814,19 @@ public:
         uid_to_fstream(ofs, task.uid());
     }
 
+    template<bool throws = true>
     void remove_task_ref(const Task& task)
     {
         std::vector<UID> refs{get_task_refs()};
         const UID uid{task.uid()};
 
         const auto it = std::find(refs.begin(), refs.end(), uid);
-        if (it == refs.end())
+        if (it == refs.end()) {
+            if constexpr (!throws)
+                return;
+
             throw std::runtime_error{std::format("Task not assigned to {}.", username())};
+        }
 
         refs.erase(it);
 
