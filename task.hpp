@@ -474,7 +474,7 @@ public:
     [[nodiscard]] std::string for_show_author() const noexcept { return author(); }
     [[nodiscard]] std::string for_show_worker() const noexcept { return worker(); }
     [[nodiscard]] std::string for_show_desc() const noexcept { return desc(); }
-    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n{}\n{}\n{}\n\n{}", for_show_id(), for_show_scope(), for_show_type(), for_show_status(), for_show_author(), for_show_worker(), for_show_desc()); }
+    [[nodiscard]] std::string for_show() const noexcept { return std::format("{}\n{}\n{}\n{}\n{}\n{}\n\n{}\n", for_show_id(), for_show_scope(), for_show_type(), for_show_status(), for_show_author(), for_show_worker(), for_show_desc()); }
 
     // clang-format on
 
@@ -493,16 +493,52 @@ private:
     std::string m_desc;
 };
 
+class TaskOnDisk {
+private:
+    u64 m_uid;
+
+    u16 m_desc_len;
+
+    u8 m_scope;
+    u8 m_type;
+    u8 m_status;
+
+    u8 m_author_len;
+    u8 m_worker_len;
+    u8 pad;
+
+    /**
+     * After all MD members.
+     * std::string m_author;
+     * std::string m_worker;
+     * std::string m_desc;
+     */
+};
+
 UID::UID(const Task& task) : m_scope{task.scope()}, m_id{task.id()} {}
 
 inline void task_to_fstream(std::ofstream& ofs, const Task& task)
 {
+    // ofs << as_num(task.id()) << "\n";
+    // ofs << as_num(task.scope()) << "\n";
+    // ofs << as_num(task.type()) << "\n";
+    // ofs << as_num(task.status()) << "\n";
+    // ofs << task.author() << "\n";
+    // ofs << task.worker() << "\n";
+    // ofs << task.desc() << "\n";
+
     ofs << as_num(task.id()) << "\n";
     ofs << as_num(task.scope()) << "\n";
     ofs << as_num(task.type()) << "\n";
     ofs << as_num(task.status()) << "\n";
+
+    ofs << as_num(task.author().size()) << "\n";
     ofs << task.author() << "\n";
+
+    ofs << as_num(task.worker().size()) << "\n";
     ofs << task.worker() << "\n";
+
+    ofs << as_num(task.desc().size()) << "\n";
     ofs << task.desc() << "\n";
 }
 
@@ -512,18 +548,28 @@ inline Task task_from_fstream(std::ifstream& ifs)
     Scope scope{};
     Type type{};
     Status status{};
-    std::string author, worker;
+
+    std::string author;
+    std::string worker;
+    std::string desc;
 
     u64 n{};
     ifs >> n, id = as<ID>(n), ifs >> std::ws;
     ifs >> n, scope = as<Scope>(n), ifs >> std::ws;
     ifs >> n, type = as<Type>(n), ifs >> std::ws;
     ifs >> n, status = as<Status>(n), ifs >> std::ws;
-    ifs >> author, ifs >> std::ws;
-    ifs >> worker, ifs >> std::ws;
 
-    std::string desc{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
-    desc.pop_back(); // remove \n
+    ifs >> n, ifs >> std::ws;
+    author.resize(n);
+    ifs.read(author.data(), n), ifs >> std::ws;
+
+    ifs >> n, ifs >> std::ws;
+    worker.resize(n);
+    ifs.read(worker.data(), n), ifs >> std::ws;
+
+    ifs >> n, ifs >> std::ws;
+    desc.resize(n);
+    ifs.read(desc.data(), n), ifs >> std::ws;
 
     return Task{id, scope, type, status, std::move(author), std::move(worker), std::move(desc)};
 }

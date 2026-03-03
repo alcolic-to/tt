@@ -13,6 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <alloc.hpp>
+#include <bit>
 #include <cctype>
 #include <cstdlib>
 #include <exception>
@@ -79,31 +81,100 @@ const std::string default_editor_message =
 
 namespace {
 
+/* clang-format off */
+
+/**
+ * Task on disk format:
+ * 
+ * | u32 task size | u64 uid | u8 scope | u8 type | u8 status | u8 auth len | ... authror |  u8 worker len | ... worker | u16 desc len | ... desc |
+ *
+ */
+
+/**
+  ID m_id;
+  Scope m_scope;
+  Type m_type;
+  Status m_status;
+  std::string m_author;
+  std::string m_worker;
+  std::string m_desc;
+*/
+
+/* clang-format on */
+
+void write_task(std::ofstream& ofs, const Task& task)
+{
+    static constexpr usize align = alignof(std::max_align_t);
+    static constexpr usize align_mask = align - 1;
+
+    task;
+
+    // std::string path;
+    // std::ofstream out{path, std::ios::out | std::ios::binary | std::ios::app};
+
+    // u32 task_size = sizeof(ID) + sizeof(Scope) + sizeof(Type) + sizeof(Status) + 5 /* padding */
+    // +
+    //                 sizeof(u8 /* author size */) + task.author().size() +
+    //                 sizeof(u8 /* woker size */) + task.worker().size() +
+    //                 sizeof(u16 /* description size */) + task.desc().size();
+
+    // /* Align to std::max_align_t */
+    // task_size = (task_size + align_mask) & ~align_mask;
+
+    // std::stringstream ss{};
+
+    // char* data = stl::callocate<char>(task_size);
+
+    // out.write(data, sizeof(task_size));
+
+    ofs << as_num(task.id()) << "\n";
+    ofs << as_num(task.scope()) << "\n";
+    ofs << as_num(task.type()) << "\n";
+    ofs << as_num(task.status()) << "\n";
+
+    ofs << task.author().size() << "\n";
+    ofs << task.author() << "\n";
+
+    ofs << task.worker().size() << "\n";
+    ofs << task.worker() << "\n";
+
+    ofs << task.desc().size() << "\n";
+    ofs << task.desc() << "\n";
+
+    return;
+}
+
 int test_main() // NOLINT
 {
     try {
-        // std::ofstream{cfg_file, std::ios::trunc} << "Some new file content";
+        const std::string path = "task_to_file_0";
+        u64 tasks_count = 256;
 
-        // std::ofstream{cfg_file, std::ios::trunc} << "alcolic-to";
+        {
+            std::ofstream ofs{path, std::ios::out | std::ios::app};
 
-        // TaskTracker tt;
+            for (u64 i = 0; i < tasks_count; ++i) {
+                Task task{as<ID>(now_sys_ns()),
+                          Scope::local,
+                          Type::task,
+                          Status::not_started,
+                          "alcolic",
+                          "alcolic",
+                          std::format("This is a simple task {}.", i)};
 
-        // std::cout << esc << "38;5;2m" << "This should be green\n"
-        //           << esc << "39m"
-        //           << "And this should be default\n";
+                task_to_fstream(ofs, task);
+            }
+        }
 
-        // println<green>("Some green text");
-        // println<red>("Some red text");
-        // println<yellow>("Some yellow text");
-        // println("Some normal text");
+        {
+            std::ifstream ifs{path, std::ios::in};
 
-        // for (u64 i = 0; i < 1000; ++i)
-        //     tt.new_task(Type::task, std::format("This is {} task.", i));
-        // auto pred = [](const Task& t) { return true; };
+            for (u64 i = 0; i < tasks_count; ++i) {
+                Task task{task_from_fstream(ifs)};
 
-        // auto all = tt.all_tasks();
-        // for (const auto& task : all)
-        //     std::cout << task.for_log() << "\n";
+                std::cout << task.for_show();
+            }
+        }
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -485,8 +556,7 @@ void tt_main(const CLI::App& app)
 
 int main(int argc, char* argv[])
 {
-    if constexpr (dev)
-        return test_main();
+    return test_main();
 
     CLI::App app{"Task tracker."};
     argv = app.ensure_utf8(argv);
