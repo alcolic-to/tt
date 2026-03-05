@@ -172,7 +172,7 @@ int test_main() // NOLINT
             for (u64 i = 0; i < tasks_count; ++i) {
                 Task task{task_from_fstream(ifs)};
 
-                std::cout << task.for_show();
+                std::cout << task.for_log() << "\n";
             }
         }
     }
@@ -556,7 +556,7 @@ void tt_main(const CLI::App& app)
 
 int main(int argc, char* argv[])
 {
-    return test_main();
+    // return test_main();
 
     CLI::App app{"Task tracker."};
     argv = app.ensure_utf8(argv);
