@@ -26,6 +26,7 @@
 #include <ios>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
@@ -663,6 +664,7 @@ inline void idx_to_fstream(std::ofstream& ofs, const Idx& idx)
 inline std::fstream& operator>>(std::fstream& fs, Idx& idx)
 {
     u64 n{};
+
     fs >> n;
     if (!fs)
         return fs;
@@ -678,10 +680,28 @@ inline std::fstream& operator>>(std::fstream& fs, Idx& idx)
 inline std::fstream& operator<<(std::fstream& fs, const Idx& idx)
 {
     fs << as_num(idx.m_id) << " " << idx.m_offset << "\n";
+    return fs;
 }
+
+struct TaskCacheEntry {
+    friend class Tasks;
+
+public:
+    TaskCacheEntry() = default;
+
+    TaskCacheEntry(u64 offset) : m_offset{offset} {}
+
+    TaskCacheEntry(Task task, u64 offset) : m_task{std::move(task)}, m_offset{offset} {}
+
+private:
+    std::optional<Task> m_task{std::nullopt};
+    u64 m_offset{0};
+};
 
 class Tasks {
 public:
+    Tasks() = default;
+
     Tasks(const fs::path& idx_path, const fs::path& data_path)
         : m_idx_fs{idx_path, std::ios::in | std::ios::out}
         , m_data_fs{data_path, std::ios::in | std::ios::out}
@@ -698,42 +718,84 @@ public:
 
         Idx idx;
 
-        m_idx_fs.seekp(0);
+        set_fspos(m_idx_fs, std::ios::beg);
         while (m_idx_fs >> idx)
-            m_idx.emplace(idx.id(), idx.offset());
+            m_tasks.emplace(idx.id(), idx.offset());
 
-        for (auto& t : m_idx)
-            std::cout << as_num(t.first) << "\n";
+        for (auto& entry : m_tasks)
+            std::cout << as_num(entry.first) << "\n";
     }
 
     const Task& get_task(ID id)
     {
-        auto it = std::ranges::find_if(m_tasks, [&](const Task& task) { return task.id() == id; });
-        if (it != m_tasks.end())
-            return *it;
+        if (!m_tasks.contains(id))
+            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
 
-        if (!m_idx.contains(id))
-            throw std::runtime_error{
-                std::format("Task {} does not exist in Tasks struct.", as_num(id))};
+        TaskCacheEntry& entry{m_tasks[id]};
+        if (!entry.m_task) {
+            Task task;
 
-        Task task;
+            set_fspos(m_data_fs, entry.m_offset);
+            m_data_fs >> task;
 
-        u64 task_offset = m_idx[id];
-        m_data_fs.seekp(task_offset);
-        m_data_fs >> task;
+            entry.m_task = std::move(task);
+        }
 
-        m_tasks.emplace_back(std::move(task));
-        return m_tasks.back();
+        return entry.m_task.value();
     }
 
-    void save_new_task(const Task& task)
+    void save_new_task(Task task)
     {
-        m_data_fs.seekp(0, std::ios::end);
-        u64 offset = m_data_fs.tellp();
+        if (m_tasks.contains(task.id()))
+            throw std::runtime_error{std::format("Task {} already exist.", as_num(task.id()))};
+
+        set_fspos(m_data_fs, std::ios::end);
+        u64 offset = fspos(m_data_fs);
         m_data_fs << task;
 
-        m_idx_fs.seekp(0, std::ios::end);
-        m_idx_fs << Idx{task.id(), offset};
+        set_fspos(m_idx_fs, std::ios::end);
+        Idx idx{task.id(), offset};
+        m_idx_fs << idx;
+
+        m_tasks.emplace(task.id(), TaskCacheEntry{std::move(task), offset});
+    }
+
+    u64 fspos(std::fstream& fs) const
+    {
+        u64 g = fs.tellg();
+        u64 p = fs.tellp();
+        if (g != p)
+            throw std::runtime_error{"Invalid stream"};
+
+        return p;
+    }
+
+    /**
+     * I don't know how this works (it looks that it doesn't work) and I don't want to know.
+     * Setting all positions at once (because it might work that way).
+     */
+    void set_fspos(std::fstream& fs, u64 pos, std::ios::seekdir seek = std::ios::beg)
+    {
+        if (fs.bad())
+            throw std::runtime_error{"Invalid stream"};
+
+        if (fs.eof())
+            fs.clear();
+
+        fs.seekg(pos, seek);
+        fs.seekp(pos, seek);
+    }
+
+    void set_fspos(std::fstream& fs, std::ios::seekdir seek = std::ios::beg)
+    {
+        if (fs.bad())
+            throw std::runtime_error{"Invalid stream"};
+
+        if (fs.eof())
+            fs.clear();
+
+        fs.seekg(0, seek);
+        fs.seekp(0, seek);
     }
 
 private: /* members */
@@ -748,8 +810,7 @@ private: /* members */
     /* newsets tests first. */
     /* clang-format off */ struct Cmp { bool operator()(ID id1, ID id2) const { return as_num(id1) > as_num(id2); } }; /* clang-format on */
 
-    std::map<ID, u64, Cmp> m_idx;
-    std::vector<Task> m_tasks;
+    std::map<ID, TaskCacheEntry, Cmp> m_tasks;
 };
 
 std::vector<Task> tasks_from_file(fs::path path)
@@ -961,6 +1022,22 @@ public:
         return m_local_tasks;
     }
 
+    const Tasks& tasks(Scope scope) const noexcept
+    {
+        if (scope == Scope::global)
+            return tasks<Scope::global>();
+
+        return tasks<Scope::local>();
+    }
+
+    Tasks& tasks(Scope scope) noexcept
+    {
+        if (scope == Scope::global)
+            return tasks<Scope::global>();
+
+        return tasks<Scope::local>();
+    }
+
     /**
      * Returns all tasks in descending order where tasks match predicate.
      */
@@ -982,9 +1059,9 @@ public:
             if (entry.is_directory() || entry.path().filename() == refs_filename)
                 continue;
 
-            Task task{get_task(entry.path())};
-            if (pred(task))
-                tasks.emplace_back(std::move(task));
+            // Task task{get_task(entry.path())};
+            // if (pred(task))
+            //     tasks.emplace_back(std::move(task));
         }
 
         std::ranges::sort(tasks, std::ranges::greater());
@@ -1037,7 +1114,7 @@ public:
      * VID can be seen with log command with current design.
      * This kind of VID based task retrival is done in many commands.
      */
-    [[nodiscard]] Task get_task(VID vid) const
+    [[nodiscard]] Task get_task(VID vid)
     {
         std::vector<Task> tasks{all_tasks_not_done<Scope::local>()};
         if (tasks.empty())
@@ -1088,16 +1165,7 @@ public:
         Task task{next_id(),         scope,          type, Status::not_started, username(),
                   std::move(worker), std::move(desc)};
 
-        fs::path idx_path{task_idx_path(task)};
-        fs::path data_path{task_data_path(task)};
-
-        std::ofstream idx_ofs{idx_path, std::ios::app};
-        std::ofstream data_ofs{data_path, std::ios::app};
-
-        u64 offset = data_ofs.tellp();
-        idx_ofs << as_num(task.id()) << " " << offset << "\n";
-
-        task_to_fstream(data_ofs, task);
+        tasks(scope).save_new_task(std::move(task));
     }
 
     void resolve_task(Task& task) { change_task_status(task, Status::done); }
