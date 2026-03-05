@@ -25,6 +25,7 @@
 #include <functional>
 #include <ios>
 #include <iostream>
+#include <map>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
@@ -388,6 +389,7 @@ inline std::ifstream& operator>>(std::ifstream& ifs, UID& uid)
 
 class Task {
     friend inline std::ifstream& operator>>(std::ifstream& ifs, Task& task);
+    friend inline std::fstream& operator>>(std::fstream& ifs, Task& task);
 
 public:
     Task() = default;
@@ -577,9 +579,176 @@ inline std::ifstream& operator>>(std::ifstream& ifs, Task& task)
     return ifs;
 }
 
+inline std::fstream& operator>>(std::fstream& fs, Task& task)
+{
+    u64 n{};
+
+    fs >> n;
+    if (!fs)
+        return fs;
+
+    task.m_id = as<ID>(n), fs >> std::ws;
+    fs >> n, task.m_scope = as<Scope>(n), fs >> std::ws;
+    fs >> n, task.m_type = as<Type>(n), fs >> std::ws;
+    fs >> n, task.m_status = as<Status>(n), fs >> std::ws;
+
+    fs >> n, fs >> std::ws;
+    task.m_author.resize(n);
+    fs.read(task.m_author.data(), n), fs >> std::ws;
+
+    fs >> n, fs >> std::ws;
+    task.m_worker.resize(n);
+    fs.read(task.m_worker.data(), n), fs >> std::ws;
+
+    fs >> n, fs >> std::ws;
+    task.m_desc.resize(n);
+    fs.read(task.m_desc.data(), n), fs >> std::ws;
+
+    return fs;
+}
+
+inline std::fstream& operator<<(std::fstream& fs, const Task& task)
+{
+    fs << as_num(task.id()) << "\n";
+    fs << as_num(task.scope()) << "\n";
+    fs << as_num(task.type()) << "\n";
+    fs << as_num(task.status()) << "\n";
+
+    fs << as_num(task.author().size()) << "\n";
+    fs << task.author() << "\n";
+
+    fs << as_num(task.worker().size()) << "\n";
+    fs << task.worker() << "\n";
+
+    fs << as_num(task.desc().size()) << "\n";
+    fs << task.desc() << "\n";
+
+    return fs;
+}
+
+/**
+ * Global identifier for the task which is also task filename.
+ */
+class Idx {
+public:
+    Idx(ID id, u64 offset) : m_id{id}, m_offset{offset} {}
+
+    Idx() = default;
+
+    friend inline std::fstream& operator>>(std::fstream& fs, Idx& idx);
+    friend inline std::fstream& operator<<(std::fstream& fs, const Idx& idx);
+
+    ID id() const noexcept { return m_id; }
+
+    u64 offset() const noexcept { return m_offset; }
+
+    void set_id(ID id) noexcept { m_id = id; }
+
+    void set_offset(u64 offset) noexcept { m_offset = offset; }
+
+    bool operator==(const Idx& other) const noexcept { return m_id == other.m_id; }
+
+    bool operator!=(const Idx& other) const noexcept { return !(*this == other); }
+
+private:
+    ID m_id;
+    u64 m_offset;
+};
+
+inline void idx_to_fstream(std::ofstream& ofs, const Idx& idx)
+{
+    ofs << as_num(idx.id()) << " " << idx.offset() << "\n";
+}
+
+inline std::fstream& operator>>(std::fstream& fs, Idx& idx)
+{
+    u64 n{};
+    fs >> n;
+    if (!fs)
+        return fs;
+
+    fs >> std::ws;
+
+    idx.m_id = as<ID>(n);
+    fs >> idx.m_offset >> std::ws;
+
+    return fs;
+}
+
+inline std::fstream& operator<<(std::fstream& fs, const Idx& idx)
+{
+    fs << as_num(idx.m_id) << " " << idx.m_offset << "\n";
+}
+
 class Tasks {
 public:
-private:
+    Tasks(const fs::path& idx_path, const fs::path& data_path)
+        : m_idx_fs{idx_path, std::ios::in | std::ios::out}
+        , m_data_fs{data_path, std::ios::in | std::ios::out}
+    {
+        /* NOTE: seekp sets both input and output possition. */
+
+        /**
+        // Set the write pointer to the end of the file
+        file.seekp(0, std::ios::end); // 0 offset from the end
+
+        // Set the read pointer to the end of the file
+        file.seekg(0, std::ios::end); // 0 offset from the end
+         */
+
+        Idx idx;
+
+        m_idx_fs.seekp(0);
+        while (m_idx_fs >> idx)
+            m_idx.emplace(idx.id(), idx.offset());
+
+        for (auto& t : m_idx)
+            std::cout << as_num(t.first) << "\n";
+    }
+
+    const Task& get_task(ID id)
+    {
+        auto it = std::ranges::find_if(m_tasks, [&](const Task& task) { return task.id() == id; });
+        if (it != m_tasks.end())
+            return *it;
+
+        if (!m_idx.contains(id))
+            throw std::runtime_error{
+                std::format("Task {} does not exist in Tasks struct.", as_num(id))};
+
+        Task task;
+
+        u64 task_offset = m_idx[id];
+        m_data_fs.seekp(task_offset);
+        m_data_fs >> task;
+
+        m_tasks.emplace_back(std::move(task));
+        return m_tasks.back();
+    }
+
+    void save_new_task(const Task& task)
+    {
+        m_data_fs.seekp(0, std::ios::end);
+        u64 offset = m_data_fs.tellp();
+        m_data_fs << task;
+
+        m_idx_fs.seekp(0, std::ios::end);
+        m_idx_fs << Idx{task.id(), offset};
+    }
+
+private: /* members */
+    std::fstream m_idx_fs;
+    std::fstream m_data_fs;
+
+    /*
+     * Serves as a cache.
+     * Map is ordered - newest tasks first.
+     */
+
+    /* newsets tests first. */
+    /* clang-format off */ struct Cmp { bool operator()(ID id1, ID id2) const { return as_num(id1) > as_num(id2); } }; /* clang-format on */
+
+    std::map<ID, u64, Cmp> m_idx;
     std::vector<Task> m_tasks;
 };
 
@@ -604,6 +773,10 @@ public:
     explicit TaskTracker()
         //  : m_md{read_md()}
         : m_config{config_from_file(cfg_file)}
+        , m_global_tasks{tasks_global_dir / tasks_idx_filename,
+                         tasks_global_dir / tasks_data_filename}
+        , m_local_tasks{tasks_global_dir / username() / tasks_idx_filename,
+                        tasks_global_dir / username() / tasks_data_filename}
     {
         if (!fs::exists(main_dir))
             throw std::runtime_error{"TT not initialized. Please run init."};
@@ -612,8 +785,8 @@ public:
             throw std::runtime_error{
                 std::format("User {} does not exist. Please run tt register.", username())};
 
-        m_global_tasks = tasks_from_file(tasks_global_dir / tasks_data_filename);
-        m_local_tasks = tasks_from_file(tasks_global_dir / username() / tasks_data_filename);
+        // m_global_tasks = tasks_from_file(tasks_global_dir / tasks_data_filename);
+        // m_local_tasks = tasks_from_file(tasks_global_dir / username() / tasks_data_filename);
     }
 
     TaskTracker(const TaskTracker&) = delete;
@@ -756,7 +929,7 @@ public:
      * Returns all tasks in descending order.
      */
     template<Scope scope>
-    std::vector<Task> all_tasks() const
+    std::vector<Task> all_tasks()
     {
         return all_tasks_where<scope>([](const Task& t) { return true; });
     }
@@ -765,25 +938,43 @@ public:
      * Returns all tasks in descending order.
      */
     template<Scope scope>
-    std::vector<Task> all_tasks_not_done() const
+    std::vector<Task> all_tasks_not_done()
     {
         return all_tasks_where<scope>([](const Task& t) { return t.status() != Status::done; });
+    }
+
+    template<Scope scope>
+    const Tasks& tasks() const noexcept
+    {
+        if constexpr (scope == Scope::global)
+            return m_global_tasks;
+
+        return m_local_tasks;
+    }
+
+    template<Scope scope>
+    Tasks& tasks() noexcept
+    {
+        if constexpr (scope == Scope::global)
+            return m_global_tasks;
+
+        return m_local_tasks;
     }
 
     /**
      * Returns all tasks in descending order where tasks match predicate.
      */
     template<Scope scope, typename Pred>
-    std::vector<Task> all_tasks_where(Pred pred) const
+    std::vector<Task> all_tasks_where(Pred pred)
     {
         std::vector<Task> tasks;
         tasks.reserve(1024);
 
         if constexpr (scope == Scope::local) {
             for (const UID& uid : get_task_refs()) {
-                Task task{get_task(uid)};
+                const Task& task{get_task(uid)};
                 if (pred(task))
-                    tasks.emplace_back(std::move(task));
+                    tasks.emplace_back(task);
             }
         }
 
@@ -821,37 +1012,12 @@ public:
     }
 
     template<bool throws = true>
-    [[nodiscard]] Task get_task(UID uid) const
+    [[nodiscard]] const Task& get_task(UID uid)
     {
-        fs::path idx_path{task_idx_path(uid)};
-        fs::path data_path{task_data_path(uid)};
+        if (uid.global())
+            return m_global_tasks.get_task(uid.id());
 
-        if (uid.global()) {
-            auto it = std::ranges::find_if(m_global_tasks,
-                                           [&](const Task& task) { return task.id() == uid.id(); });
-
-            if (it == m_global_tasks.end()) {
-                if constexpr (throws)
-                    throw std::runtime_error{
-                        std::format("Task {} does not exist.", as_num(uid.id()))};
-
-                return {};
-            }
-
-            return *it;
-        }
-
-        auto it = std::ranges::find_if(m_local_tasks,
-                                       [&](const Task& task) { return task.id() == uid.id(); });
-
-        if (it == m_local_tasks.end()) {
-            if constexpr (throws)
-                throw std::runtime_error{std::format("Task {} does not exist.", as_num(uid.id()))};
-
-            return {};
-        }
-
-        return *it;
+        return m_local_tasks.get_task(uid.id());
     }
 
     // [[nodiscard]] Task get_task(const fs::path& path) const
@@ -1058,8 +1224,8 @@ private: // NOLINT
     // Tasks m_global_tasks;
     // Tasks m_local_tasks;
 
-    std::vector<Task> m_global_tasks;
-    std::vector<Task> m_local_tasks;
+    Tasks m_global_tasks;
+    Tasks m_local_tasks;
 };
 
 // NOLINTEND(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,

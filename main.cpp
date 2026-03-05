@@ -226,7 +226,7 @@ std::string desc_from_opt_or_editor(CLI::App& cmd, const std::string& inital_des
 /**
  * Returns task based on command line input (VID or UID).
  */
-Task task_from_vuid(TaskTracker& tt, CLI::App& cmd)
+const Task& task_from_vuid(TaskTracker& tt, CLI::App& cmd)
 {
     u64 vid = 0;
 
@@ -388,7 +388,7 @@ void show_task(const Task& task)
 
 void tt_cmd_show(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_show)
 {
-    Task task{task_from_vuid(tt, cmd_show)};
+    const Task& task{task_from_vuid(tt, cmd_show)};
     show_task(task);
 }
 
