@@ -558,66 +558,6 @@ inline void task_to_fstream(std::ofstream& ofs, const Task& task)
     ofs << task.desc() << "\n";
 }
 
-inline Task task_from_fstream(std::ifstream& ifs)
-{
-    ID id{};
-    Scope scope{};
-    Type type{};
-    Status status{};
-
-    std::string author;
-    std::string worker;
-    std::string desc;
-
-    u64 n{};
-    ifs >> n, id = as<ID>(n), ifs >> std::ws;
-    ifs >> n, scope = as<Scope>(n), ifs >> std::ws;
-    ifs >> n, type = as<Type>(n), ifs >> std::ws;
-    ifs >> n, status = as<Status>(n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    author.resize(n);
-    ifs.read(author.data(), n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    worker.resize(n);
-    ifs.read(worker.data(), n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    desc.resize(n);
-    ifs.read(desc.data(), n), ifs >> std::ws;
-
-    return Task{id, scope, type, status, std::move(author), std::move(worker), std::move(desc)};
-}
-
-inline std::ifstream& operator>>(std::ifstream& ifs, Task& task)
-{
-    u64 n{};
-
-    ifs >> n;
-    if (!ifs)
-        return ifs;
-
-    task.m_id = as<ID>(n), ifs >> std::ws;
-    ifs >> n, task.m_scope = as<Scope>(n), ifs >> std::ws;
-    ifs >> n, task.m_type = as<Type>(n), ifs >> std::ws;
-    ifs >> n, task.m_status = as<Status>(n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    task.m_author.resize(n);
-    ifs.read(task.m_author.data(), n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    task.m_worker.resize(n);
-    ifs.read(task.m_worker.data(), n), ifs >> std::ws;
-
-    ifs >> n, ifs >> std::ws;
-    task.m_desc.resize(n);
-    ifs.read(task.m_desc.data(), n), ifs >> std::ws;
-
-    return ifs;
-}
-
 inline std::fstream& operator>>(std::fstream& fs, Task& task)
 {
     u64 n{};
@@ -727,17 +667,12 @@ inline std::fstream& operator<<(std::fstream& fs, const Idx& idx)
  * located.
  */
 struct TaskCacheEntry {
-    friend class Tasks;
-    friend class TaskTracker;
-
-public:
     TaskCacheEntry() = default;
 
     TaskCacheEntry(u64 offset) : m_offset{offset} {}
 
     TaskCacheEntry(Task task, u64 offset) : m_task{std::move(task)}, m_offset{offset} {}
 
-private:
     std::optional<Task> m_task{std::nullopt};
     u64 m_offset{0};
 };
@@ -773,7 +708,7 @@ public:
         return entry.m_task.value();
     }
 
-    void save_new_task(Task task)
+    void new_task(Task task)
     {
         if (m_cache.contains(task.id()))
             throw std::runtime_error{std::format("Task {} already exist.", as_num(task.id()))};
@@ -863,22 +798,6 @@ private: /* members */
      */
     std::map<ID, TaskCacheEntry, Cmp> m_cache;
 };
-
-std::vector<Task> tasks_from_file(fs::path path)
-{
-    if (!fs::exists(path))
-        throw std::runtime_error{std::format("File {} does not exist.", path.string())};
-
-    std::ifstream ifs{path};
-    std::vector<Task> tasks;
-    tasks.reserve(128);
-
-    Task task;
-    while (ifs >> task)
-        tasks.emplace_back(std::move(task));
-
-    return tasks;
-}
 
 class TaskTracker {
 public:
@@ -1090,11 +1009,7 @@ public:
         return res;
     }
 
-    template<bool throws = true>
-    [[nodiscard]] const Task& get_task(UID uid)
-    {
-        return tasks(uid.scope()).get_task(uid.id());
-    }
+    [[nodiscard]] const Task& get_task(UID uid) { return tasks(uid.scope()).get_task(uid.id()); }
 
     /**
      * Returns non-resolved local task with provided VID.
@@ -1142,7 +1057,7 @@ public:
         Task task{next_id(),         scope,          type, Status::not_started, username(),
                   std::move(worker), std::move(desc)};
 
-        tasks(scope).save_new_task(std::move(task));
+        tasks(scope).new_task(std::move(task));
     }
 
     void resolve_task(Task& task) { change_task_status(task, Status::done); }

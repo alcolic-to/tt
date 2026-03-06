@@ -105,34 +105,6 @@ namespace {
 int test_main() // NOLINT
 {
     try {
-        const std::string path = "task_to_file_0";
-        u64 tasks_count = 256;
-
-        {
-            std::ofstream ofs{path, std::ios::out | std::ios::app};
-
-            for (u64 i = 0; i < tasks_count; ++i) {
-                Task task{as<ID>(now_sys_ns()),
-                          Scope::local,
-                          Type::task,
-                          Status::not_started,
-                          "alcolic",
-                          "alcolic",
-                          std::format("This is a simple task {}.", i)};
-
-                task_to_fstream(ofs, task);
-            }
-        }
-
-        {
-            std::ifstream ifs{path, std::ios::in};
-
-            for (u64 i = 0; i < tasks_count; ++i) {
-                Task task{task_from_fstream(ifs)};
-
-                std::cout << task.for_log() << "\n";
-            }
-        }
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
