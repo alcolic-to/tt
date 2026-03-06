@@ -351,6 +351,7 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     task.set_type(type);
     task.set_worker(std::move(worker));
     task.set_desc(std::move(desc));
+
     tt.save_task(task);
 }
 
