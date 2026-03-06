@@ -31,7 +31,7 @@
 // NOLINTBEGIN(hicpp-use-auto, modernize-use-auto, readability-static-accessed-through-instance,
 // readability-avoid-return-with-void-value)
 
-const std::string version = "0.0.2";
+const std::string version = "0.0.4";
 
 const std::string subcmd_init = "init";
 const std::string subcmd_config = "config";
@@ -82,28 +82,6 @@ namespace {
 int test_main() // NOLINT
 {
     try {
-        // std::ofstream{cfg_file, std::ios::trunc} << "Some new file content";
-
-        // std::ofstream{cfg_file, std::ios::trunc} << "alcolic-to";
-
-        // TaskTracker tt;
-
-        // std::cout << esc << "38;5;2m" << "This should be green\n"
-        //           << esc << "39m"
-        //           << "And this should be default\n";
-
-        // println<green>("Some green text");
-        // println<red>("Some red text");
-        // println<yellow>("Some yellow text");
-        // println("Some normal text");
-
-        // for (u64 i = 0; i < 1000; ++i)
-        //     tt.new_task(Type::task, std::format("This is {} task.", i));
-        // auto pred = [](const Task& t) { return true; };
-
-        // auto all = tt.all_tasks();
-        // for (const auto& task : all)
-        //     std::cout << task.for_log() << "\n";
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -350,6 +328,7 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     task.set_type(type);
     task.set_worker(std::move(worker));
     task.set_desc(std::move(desc));
+
     tt.save_task(task);
 }
 
@@ -485,8 +464,7 @@ void tt_main(const CLI::App& app)
 
 int main(int argc, char* argv[])
 {
-    if constexpr (dev)
-        return test_main();
+    // return test_main();
 
     CLI::App app{"Task tracker."};
     argv = app.ensure_utf8(argv);
