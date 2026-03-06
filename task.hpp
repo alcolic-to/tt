@@ -111,7 +111,6 @@ inline const fs::path cfg_file = home_dir() / ".ttconfig";   /* ~/.ttconfig  */
 
 inline const fs::path tasks_idx_filename = "idx";            /* located in .tt/tasks/idx and .tt/tasks/<user>/idx */ 
 inline const fs::path tasks_data_filename = "data";          /* located in .tt/tasks/data and .tt/tasks/<user>/data */
-
 inline const fs::path refs_filename = "refs";                /* refs filename, located in .tt/tasks/<user>/refs */
 
 /* clang-format on */
@@ -226,6 +225,45 @@ inline std::string as_string(Status s)
     case Status::done:        return sh == show::short_ ? "R" : "Resolved";
     default:                  return "invalid";
     } // clang-format on
+}
+
+/**
+ * I don't know how this works (it looks that it doesn't work) and I don't want to know.
+ * Setting and reading all positions at once (because it might work that way).
+ */
+
+u64 fspos(std::fstream& fs)
+{
+    u64 g = fs.tellg();
+    u64 p = fs.tellp();
+    if (g != p)
+        throw std::runtime_error{"Invalid stream"};
+
+    return p;
+}
+
+void set_fspos(std::fstream& fs, u64 pos, std::ios::seekdir seek = std::ios::beg)
+{
+    if (fs.bad())
+        throw std::runtime_error{"Invalid stream"};
+
+    if (fs.eof())
+        fs.clear();
+
+    fs.seekg(pos, seek);
+    fs.seekp(pos, seek);
+}
+
+void set_fspos(std::fstream& fs, std::ios::seekdir seek = std::ios::beg)
+{
+    if (fs.bad())
+        throw std::runtime_error{"Invalid stream"};
+
+    if (fs.eof())
+        fs.clear();
+
+    fs.seekg(0, seek);
+    fs.seekp(0, seek);
 }
 
 struct MD {
@@ -628,7 +666,7 @@ inline std::fstream& operator<<(std::fstream& fs, const Task& task)
 }
 
 /**
- * Global identifier for the task which is also task filename.
+ * Task index holding task id and task offset in data file.
  */
 class Idx {
 public:
@@ -683,8 +721,14 @@ inline std::fstream& operator<<(std::fstream& fs, const Idx& idx)
     return fs;
 }
 
+/**
+ * Task cache entry.
+ * It holds task, if task is loaded from file, nullopt otherwise, and file offset where task is
+ * located.
+ */
 struct TaskCacheEntry {
     friend class Tasks;
+    friend class TaskTracker;
 
 public:
     TaskCacheEntry() = default;
@@ -699,6 +743,8 @@ private:
 };
 
 class Tasks {
+    friend class TaskTracker;
+
 public:
     Tasks() = default;
 
@@ -706,47 +752,30 @@ public:
         : m_idx_fs{idx_path, std::ios::in | std::ios::out}
         , m_data_fs{data_path, std::ios::in | std::ios::out}
     {
-        /* NOTE: seekp sets both input and output possition. */
-
-        /**
-        // Set the write pointer to the end of the file
-        file.seekp(0, std::ios::end); // 0 offset from the end
-
-        // Set the read pointer to the end of the file
-        file.seekg(0, std::ios::end); // 0 offset from the end
-         */
-
         Idx idx;
-
         set_fspos(m_idx_fs, std::ios::beg);
-        while (m_idx_fs >> idx)
-            m_tasks.emplace(idx.id(), idx.offset());
-
-        for (auto& entry : m_tasks)
-            std::cout << as_num(entry.first) << "\n";
+        while (m_idx_fs >> idx) {
+            m_idxs.emplace_back(idx);
+            m_cache.emplace(idx.id(), idx.offset());
+        }
     }
 
+    /**
+     * Returns task with provided id.
+     * If task is not in the cache, it is read from file.
+     */
     const Task& get_task(ID id)
     {
-        if (!m_tasks.contains(id))
-            throw std::runtime_error{std::format("Task {} does not exist.", as_num(id))};
-
-        TaskCacheEntry& entry{m_tasks[id]};
-        if (!entry.m_task) {
-            Task task;
-
-            set_fspos(m_data_fs, entry.m_offset);
-            m_data_fs >> task;
-
-            entry.m_task = std::move(task);
-        }
+        TaskCacheEntry& entry{get_cache_entry(id)};
+        if (!entry.m_task)
+            entry.m_task = task_from_offset(entry.m_offset);
 
         return entry.m_task.value();
     }
 
     void save_new_task(Task task)
     {
-        if (m_tasks.contains(task.id()))
+        if (m_cache.contains(task.id()))
             throw std::runtime_error{std::format("Task {} already exist.", as_num(task.id()))};
 
         set_fspos(m_data_fs, std::ios::end);
@@ -754,63 +783,85 @@ public:
         m_data_fs << task;
 
         set_fspos(m_idx_fs, std::ios::end);
-        Idx idx{task.id(), offset};
-        m_idx_fs << idx;
+        m_idx_fs << Idx{task.id(), offset};
 
-        m_tasks.emplace(task.id(), TaskCacheEntry{std::move(task), offset});
-    }
-
-    u64 fspos(std::fstream& fs) const
-    {
-        u64 g = fs.tellg();
-        u64 p = fs.tellp();
-        if (g != p)
-            throw std::runtime_error{"Invalid stream"};
-
-        return p;
+        m_cache.emplace(task.id(), TaskCacheEntry{std::move(task), offset});
     }
 
     /**
-     * I don't know how this works (it looks that it doesn't work) and I don't want to know.
-     * Setting all positions at once (because it might work that way).
+     * Iterates over cache entries (sorted by ID) and loads tasks from disk if they are not in
+     * cache, after which pred is applied.
      */
-    void set_fspos(std::fstream& fs, u64 pos, std::ios::seekdir seek = std::ios::beg)
+    template<class Pred>
+    void for_each_sorted(Pred&& pred)
     {
-        if (fs.bad())
-            throw std::runtime_error{"Invalid stream"};
+        for (auto& [id, entry] : m_cache) {
+            if (!entry.m_task)
+                entry.m_task = task_from_offset(entry.m_offset);
 
-        if (fs.eof())
-            fs.clear();
-
-        fs.seekg(pos, seek);
-        fs.seekp(pos, seek);
+            pred(entry.m_task.value());
+        }
     }
 
-    void set_fspos(std::fstream& fs, std::ios::seekdir seek = std::ios::beg)
+    /**
+     * Iterates over index entries (sorted by file offset) and loads tasks from disk if they are not
+     * in cache, after which pred is applied.
+     */
+    template<class Pred>
+    void for_each_unsorted(Pred&& pred)
     {
-        if (fs.bad())
-            throw std::runtime_error{"Invalid stream"};
+        for (const Idx& idx : m_idxs)
+            pred(get_task(idx.id()));
+    }
 
-        if (fs.eof())
-            fs.clear();
+    template<bool sorted, class Pred>
+    void for_each(Pred&& pred)
+    {
+        if constexpr (sorted)
+            return for_each_sorted<Pred>(std::forward<Pred>(pred));
 
-        fs.seekg(0, seek);
-        fs.seekp(0, seek);
+        return for_each_unsorted<Pred>(std::forward<Pred>(pred));
+    }
+
+    void bulk_load()
+    {
+        for_each_unsorted([](const Task& task) {});
+    }
+
+private:
+    Task task_from_offset(u64 offset)
+    {
+        Task task;
+
+        set_fspos(m_data_fs, offset);
+        m_data_fs >> task;
+        if (!m_data_fs)
+            throw std::runtime_error{"Invalid task read."};
+
+        return task;
+    }
+
+    TaskCacheEntry& get_cache_entry(ID id)
+    {
+        if (!m_cache.contains(id))
+            throw std::runtime_error{std::format("Fatal: ID {} not in cache.", as_num(id))};
+
+        return m_cache[id];
     }
 
 private: /* members */
     std::fstream m_idx_fs;
     std::fstream m_data_fs;
 
-    /*
-     * Serves as a cache.
-     * Map is ordered - newest tasks first.
-     */
+    std::vector<Idx> m_idxs;
 
-    /* newsets tests first. */
     /* clang-format off */ struct Cmp { bool operator()(ID id1, ID id2) const { return as_num(id1) > as_num(id2); } }; /* clang-format on */
 
-    std::map<ID, TaskCacheEntry, Cmp> m_tasks;
+    /*
+     * Tasks cache.
+     * Cache is ordered - newest tasks first.
+     */
+    std::map<ID, TaskCacheEntry, Cmp> m_cache;
 };
 
 std::vector<Task> tasks_from_file(fs::path path)
@@ -824,7 +875,7 @@ std::vector<Task> tasks_from_file(fs::path path)
 
     Task task;
     while (ifs >> task)
-        tasks.emplace_back(task);
+        tasks.emplace_back(std::move(task));
 
     return tasks;
 }
@@ -1004,39 +1055,13 @@ public:
         return all_tasks_where<scope>([](const Task& t) { return t.status() != Status::done; });
     }
 
-    template<Scope scope>
-    const Tasks& tasks() const noexcept
-    {
-        if constexpr (scope == Scope::global)
-            return m_global_tasks;
+    /* clang-format off */
+    template<Scope scope> const Tasks& tasks() const noexcept { if constexpr (scope == Scope::global) return m_global_tasks; return m_local_tasks; }
+    template<Scope scope> Tasks& tasks() noexcept { if constexpr (scope == Scope::global) return m_global_tasks; return m_local_tasks; }
+    const Tasks& tasks(Scope scope) const noexcept { if (scope == Scope::global) return tasks<Scope::global>(); return tasks<Scope::local>(); }
+    Tasks& tasks(Scope scope) noexcept { if (scope == Scope::global) return tasks<Scope::global>(); return tasks<Scope::local>(); }
 
-        return m_local_tasks;
-    }
-
-    template<Scope scope>
-    Tasks& tasks() noexcept
-    {
-        if constexpr (scope == Scope::global)
-            return m_global_tasks;
-
-        return m_local_tasks;
-    }
-
-    const Tasks& tasks(Scope scope) const noexcept
-    {
-        if (scope == Scope::global)
-            return tasks<Scope::global>();
-
-        return tasks<Scope::local>();
-    }
-
-    Tasks& tasks(Scope scope) noexcept
-    {
-        if (scope == Scope::global)
-            return tasks<Scope::global>();
-
-        return tasks<Scope::local>();
-    }
+    /* clang-format on */
 
     /**
      * Returns all tasks in descending order where tasks match predicate.
@@ -1044,70 +1069,32 @@ public:
     template<Scope scope, typename Pred>
     std::vector<Task> all_tasks_where(Pred pred)
     {
-        std::vector<Task> tasks;
-        tasks.reserve(1024);
+        std::vector<Task> res;
+        res.reserve(1024);
 
         if constexpr (scope == Scope::local) {
             for (const UID& uid : get_task_refs()) {
                 const Task& task{get_task(uid)};
                 if (pred(task))
-                    tasks.emplace_back(task);
+                    res.emplace_back(task);
             }
         }
 
-        for (const auto& entry : fs::directory_iterator{tasks_dir<scope>()}) {
-            if (entry.is_directory() || entry.path().filename() == refs_filename)
-                continue;
+        tasks<scope>().for_each_unsorted([&](const Task& task) {
+            if (pred(task))
+                res.emplace_back(task);
+        });
 
-            // Task task{get_task(entry.path())};
-            // if (pred(task))
-            //     tasks.emplace_back(std::move(task));
-        }
+        std::ranges::sort(res, std::ranges::greater());
 
-        std::ranges::sort(tasks, std::ranges::greater());
-
-        return tasks;
-    }
-
-    /**
-     * Returns whether task with provided id in given scope exists.
-     */
-    // template<Scope scope>
-    // bool exists(UID uid) const
-    // {
-    //     return fs::exists(task_path(uid));
-    // }
-
-    [[nodiscard]] Task get_task(const fs::path& path) const
-    {
-        std::ifstream ifs{path};
-        if (!ifs)
-            throw std::runtime_error{
-                std::format("Task {} does not exist.", path.filename().string())};
-
-        return task_from_fstream(ifs);
+        return res;
     }
 
     template<bool throws = true>
     [[nodiscard]] const Task& get_task(UID uid)
     {
-        if (uid.global())
-            return m_global_tasks.get_task(uid.id());
-
-        return m_local_tasks.get_task(uid.id());
+        return tasks(uid.scope()).get_task(uid.id());
     }
-
-    // [[nodiscard]] Task get_task(const fs::path& path) const
-    // {
-    //     std::ifstream ifs{path};
-    //     if (!ifs)
-    //         throw std::runtime_error{
-    //             std::format("Task {} does not exist.", path.filename().string())};
-
-    //     return task_from_fstream(ifs);
-    // }
-
-    // [[nodiscard]] Task get_task(UID uid) const { return get_task(task_path(uid)); }
 
     /**
      * Returns non-resolved local task with provided VID.
@@ -1146,16 +1133,6 @@ public:
         std::ofstream ofs{task_path(task), std::ios::trunc};
         task_to_fstream(ofs, task);
     }
-
-    // void new_task(Scope scope, Type type, std::string worker, std::string desc)
-    // {
-    //     if (worker.empty())
-    //         worker = scope == Scope::local ? username() : default_worker();
-
-    //     save_task(Task{next_id(), scope, type, Status::not_started, username(),
-    //     std::move(worker),
-    //                    std::move(desc)});
-    // }
 
     void new_task(Scope scope, Type type, std::string worker, std::string desc)
     {

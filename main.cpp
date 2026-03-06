@@ -102,48 +102,6 @@ namespace {
 
 /* clang-format on */
 
-void write_task(std::ofstream& ofs, const Task& task)
-{
-    static constexpr usize align = alignof(std::max_align_t);
-    static constexpr usize align_mask = align - 1;
-
-    task;
-
-    // std::string path;
-    // std::ofstream out{path, std::ios::out | std::ios::binary | std::ios::app};
-
-    // u32 task_size = sizeof(ID) + sizeof(Scope) + sizeof(Type) + sizeof(Status) + 5 /* padding */
-    // +
-    //                 sizeof(u8 /* author size */) + task.author().size() +
-    //                 sizeof(u8 /* woker size */) + task.worker().size() +
-    //                 sizeof(u16 /* description size */) + task.desc().size();
-
-    // /* Align to std::max_align_t */
-    // task_size = (task_size + align_mask) & ~align_mask;
-
-    // std::stringstream ss{};
-
-    // char* data = stl::callocate<char>(task_size);
-
-    // out.write(data, sizeof(task_size));
-
-    ofs << as_num(task.id()) << "\n";
-    ofs << as_num(task.scope()) << "\n";
-    ofs << as_num(task.type()) << "\n";
-    ofs << as_num(task.status()) << "\n";
-
-    ofs << task.author().size() << "\n";
-    ofs << task.author() << "\n";
-
-    ofs << task.worker().size() << "\n";
-    ofs << task.worker() << "\n";
-
-    ofs << task.desc().size() << "\n";
-    ofs << task.desc() << "\n";
-
-    return;
-}
-
 int test_main() // NOLINT
 {
     try {
@@ -226,7 +184,7 @@ std::string desc_from_opt_or_editor(CLI::App& cmd, const std::string& inital_des
 /**
  * Returns task based on command line input (VID or UID).
  */
-const Task& task_from_vuid(TaskTracker& tt, CLI::App& cmd)
+Task task_from_vuid(TaskTracker& tt, CLI::App& cmd)
 {
     u64 vid = 0;
 
