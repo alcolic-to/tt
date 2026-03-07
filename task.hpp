@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <ios>
@@ -129,7 +130,14 @@ void log(const std::format_string<Args...>& fmt, Args&&... args)
         std::cout << std::format(fmt, std::forward<Args>(args)...) << "\n";
 }
 
-bool spaces_only(const std::string& s) noexcept
+template<class StringLike>
+bool has_spaces(const StringLike& s) noexcept
+{
+    return std::ranges::any_of(s, [](u8 c) { return std::isspace(c); });
+}
+
+template<class StringLike>
+bool spaces_only(const StringLike& s) noexcept
 {
     return std::ranges::all_of(s, [](u8 c) { return std::isspace(c); });
 }
@@ -277,30 +285,91 @@ struct MD {
     }
 };
 
+class Username {
+public:
+    friend inline std::fstream& operator>>(std::fstream& fs, Username& username);
+    friend inline std::fstream& operator<<(std::fstream& fs, const Username& username);
+    constexpr static u64 max_len = 16;
+
+    explicit Username(std::string username = default_username()) : m_usernme{std::move(username)}
+    {
+        if (m_usernme.empty())
+            throw std::runtime_error{"Empty username."};
+
+        if (m_usernme.size() > max_len)
+            throw std::runtime_error{
+                std::format("Username {} longer than {}.", m_usernme, max_len)};
+
+        if (has_spaces(m_usernme))
+            throw std::runtime_error{std::format("Username {} have spaces.", m_usernme)};
+    }
+
+    auto operator<=>(const Username& other) const = default;
+
+    operator const std::string&() const noexcept { return m_usernme; }
+
+    operator fs::path() const noexcept { return m_usernme; }
+
+private:
+    std::string m_usernme;
+};
+
+/**
+ * When reading/writing from/to file, username is always 16 bytes long.
+ * Note that serialized username is extended with ' ' up to 16 bytes, so those will not be
+ * considered for read and we will get string without whitespaces.
+ */
+inline std::fstream& operator>>(std::fstream& fs, Username& username)
+{
+    fs >> username.m_usernme;
+    return fs;
+}
+
+/**
+ * Always extend username size to max_len when writing it to file, in order to be able to
+ * substitute it with another username when task is modified (take, assign etc.).
+ */
+inline std::fstream& operator<<(std::fstream& fs, const Username& username)
+{
+    std::string copy{username};
+    copy.resize(Username::max_len, ' ');
+
+    fs.write(copy.data(), copy.size());
+    return fs;
+}
+
+template<>
+struct std::formatter<Username> : std::formatter<std::string> {
+    auto format(const Username& username, format_context& ctx) const
+    {
+        return formatter<string>::format(username, ctx);
+    }
+};
+
 class Config {
 public:
-    Config(std::string username, std::string email)
-        : m_username{!username.empty() ? std::move(username) : default_username()}
+    Config(Username username, std::string email)
+        : m_username{std::move(username)}
         , m_email{!email.empty() ? std::move(email) : default_email()}
     {
     }
 
-    const std::string& username() const noexcept { return m_username; }
+    const Username& username() const noexcept { return m_username; }
 
     const std::string& email() const noexcept { return m_email; }
 
-    void set_username(std::string username) { m_username = std::move(username); }
+    void set_username(Username username) { m_username = std::move(username); }
 
     void set_email(std::string email) { m_email = std::move(email); }
 
 private:
-    std::string m_username;
+    Username m_username;
     std::string m_email;
 };
 
 inline void config_to_file(const fs::path& fpath, const Config& config)
 {
-    std::ofstream ofs{fpath, std::ios::trunc};
+    std::fstream ofs{fpath, std::ios::out | std::ios::trunc};
     ofs << config.username() << "\n" << config.email();
 }
 
@@ -310,9 +379,10 @@ inline Config config_from_file(const fs::path& fpath)
         throw std::runtime_error{
             "TT config not present. Please run tt config (-n <username> -m <email>)."};
 
-    std::string username, email;
+    Username username;
+    std::string email;
 
-    std::ifstream ifs{fpath};
+    std::fstream ifs{fpath, std::ios::in};
     ifs >> username >> email;
 
     return Config{std::move(username), std::move(email)};
@@ -453,9 +523,9 @@ public:
 
     [[nodiscard]] Status status() const noexcept { return m_status; }
 
-    [[nodiscard]] const std::string& author() const noexcept { return m_author; }
+    [[nodiscard]] const Username& author() const noexcept { return m_author; }
 
-    [[nodiscard]] const std::string& worker() const noexcept { return m_worker; }
+    [[nodiscard]] const Username& worker() const noexcept { return m_worker; }
 
     [[nodiscard]] const std::string& desc() const noexcept { return m_desc; }
 
@@ -469,9 +539,9 @@ public:
 
     void set_status(Status s) { m_status = s; }
 
-    void set_worker(std::string worker) { m_worker = std::move(worker); }
+    void set_worker(Username worker) { m_worker = std::move(worker); }
 
-    void unset_worker() { m_worker = default_worker(); }
+    void unset_worker() { m_worker = Username{default_worker()}; }
 
     void set_desc(std::string desc) { m_desc = std::move(desc); }
 
@@ -534,29 +604,12 @@ private:
     Scope m_scope;
     Type m_type;
     Status m_status;
-    std::string m_author;
-    std::string m_worker;
+    Username m_author;
+    Username m_worker;
     std::string m_desc;
 };
 
 UID::UID(const Task& task) : m_scope{task.scope()}, m_id{task.id()} {}
-
-inline void task_to_fstream(std::ofstream& ofs, const Task& task)
-{
-    ofs << as_num(task.id()) << "\n";
-    ofs << as_num(task.scope()) << "\n";
-    ofs << as_num(task.type()) << "\n";
-    ofs << as_num(task.status()) << "\n";
-
-    ofs << as_num(task.author().size()) << "\n";
-    ofs << task.author() << "\n";
-
-    ofs << as_num(task.worker().size()) << "\n";
-    ofs << task.worker() << "\n";
-
-    ofs << as_num(task.desc().size()) << "\n";
-    ofs << task.desc() << "\n";
-}
 
 inline std::fstream& operator>>(std::fstream& fs, Task& task)
 {
@@ -571,13 +624,8 @@ inline std::fstream& operator>>(std::fstream& fs, Task& task)
     fs >> n, task.m_type = as<Type>(n), fs >> std::ws;
     fs >> n, task.m_status = as<Status>(n), fs >> std::ws;
 
-    fs >> n, fs >> std::ws;
-    task.m_author.resize(n);
-    fs.read(task.m_author.data(), n), fs >> std::ws;
-
-    fs >> n, fs >> std::ws;
-    task.m_worker.resize(n);
-    fs.read(task.m_worker.data(), n), fs >> std::ws;
+    fs >> task.m_author, fs >> std::ws;
+    fs >> task.m_worker, fs >> std::ws;
 
     fs >> n, fs >> std::ws;
     task.m_desc.resize(n);
@@ -593,10 +641,7 @@ inline std::fstream& operator<<(std::fstream& fs, const Task& task)
     fs << as_num(task.type()) << "\n";
     fs << as_num(task.status()) << "\n";
 
-    fs << as_num(task.author().size()) << "\n";
     fs << task.author() << "\n";
-
-    fs << as_num(task.worker().size()) << "\n";
     fs << task.worker() << "\n";
 
     fs << as_num(task.desc().size()) << "\n";
@@ -766,7 +811,8 @@ public:
 
     /**
      * Changes task by replacing existing task with provided changed task.
-     * If in-place replacement is not possible, new task is created and all references are updated.
+     * If in-place replacement is not possible, new task is created and all references are
+     * updated.
      */
     void change_task(Task changed)
     {
@@ -775,11 +821,7 @@ public:
         if (base.scope() != changed.scope() || base.author() != changed.author())
             throw std::runtime_error{"Scope/author can not be changed."};
 
-        /*
-         * TODO: Don't create new task whenever worker is changed, because that is common op.
-         * Maybe just preallocate some maximum len for worker in data file.
-         */
-        if (base.desc() != changed.desc() || base.worker() != changed.worker())
+        if (base.desc() != changed.desc())
             return change_by_new(base, std::move(changed));
 
         change_by_replace(base, std::move(changed));
@@ -822,8 +864,8 @@ public:
     }
 
     /**
-     * Iterates over index entries (sorted by file offset) and loads tasks from disk if they are not
-     * in cache, after which pred is applied.
+     * Iterates over index entries (sorted by file offset) and loads tasks from disk if they are
+     * not in cache, after which pred is applied.
      */
     template<class Pred>
     void for_each_unsorted(Pred&& pred)
@@ -942,7 +984,7 @@ public:
     // }
     // }
 
-    const std::string& username() const noexcept { return m_config.username(); }
+    const Username& username() const noexcept { return m_config.username(); }
 
     const std::string& email() const noexcept { return m_config.email(); }
 
@@ -950,7 +992,7 @@ public:
     {
         /* First time config init. */
         if (!fs::exists(cfg_file)) {
-            Config config{cmd_user, cmd_email};
+            Config config{Username{cmd_user}, cmd_email};
             config_to_file(cfg_file, config);
             return config;
         }
@@ -958,7 +1000,7 @@ public:
         Config config{config_from_file(cfg_file)};
 
         if (!cmd_user.empty())
-            config.set_username(cmd_user);
+            config.set_username(Username{cmd_user});
 
         if (!cmd_email.empty())
             config.set_email(cmd_email);
@@ -991,7 +1033,7 @@ public:
 
     static void cmd_register(std::string username, std::string email)
     {
-        Config config{!username.empty() ? Config{std::move(username), std::move(email)} :
+        Config config{!username.empty() ? Config{Username{std::move(username)}, std::move(email)} :
                                           config_from_file(cfg_file)};
 
         if (!fs::exists(main_dir))
@@ -1013,7 +1055,7 @@ public:
 
         for (const auto& entry : fs::directory_iterator{tasks_global_dir})
             if (entry.is_directory())
-                users.emplace_back(entry.path().filename(), "");
+                users.emplace_back(Username{entry.path().filename()}, "");
 
         return users;
     }

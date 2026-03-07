@@ -82,6 +82,10 @@ namespace {
 int test_main() // NOLINT
 {
     try {
+        TaskTracker tt;
+
+        for (u64 i = 0; i < 10 * 1024; ++i)
+            tt.new_task(Scope::global, Type::task, "alcolic", std::format("Global task {}", i));
     }
     catch (const std::exception& ex) {
         std::cout << ex.what() << "\n";
@@ -277,7 +281,7 @@ void tt_cmd_log(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_log)
 void show_task(const Task& task)
 {
     println<yellow>("{}", task.for_show_id());
-    if (task.worker() != default_worker())
+    if (task.worker() != Username{default_worker()})
         println("{}\n", task.worker());
 
     println<high_blue>("{}", task.for_show_scope());
@@ -326,7 +330,7 @@ void tt_cmd_amend(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_amend)
     std::string desc{desc_from_opt_or_editor(cmd_amend, task.desc())};
 
     task.set_type(type);
-    task.set_worker(std::move(worker));
+    task.set_worker(Username{std::move(worker)});
     task.set_desc(std::move(desc));
 
     tt.save_task(task);
@@ -366,7 +370,7 @@ void tt_cmd_assign(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assign)
         throw std::runtime_error{"Can not assign local task."};
 
     if (CLI::Option* opt = cmd_assign.get_option(req_username); *opt)
-        tt.switch_context({opt->as<std::string>(), ""});
+        tt.switch_context({Username{opt->as<std::string>()}, ""});
 
     tt.add_task_ref(task);
 
@@ -381,7 +385,7 @@ void tt_cmd_assignb(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_assignb)
     if (task.scope() == Scope::local)
         throw std::runtime_error{"Can not assign back local task."};
 
-    if (task.worker() == default_worker())
+    if (task.worker() == Username{default_worker()})
         throw std::runtime_error{"Task not assigned."};
 
     if (tt.username() != task.worker())
@@ -397,7 +401,7 @@ void tt_cmd_rm(TaskTracker& tt, [[maybe_unused]] CLI::App& cmd_rm)
 {
     Task task{task_from_vuid(tt, cmd_rm)};
 
-    if (task.worker() != default_worker() && tt.username() != task.worker())
+    if (task.worker() != Username{default_worker()} && tt.username() != task.worker())
         tt.switch_context({task.worker(), ""});
 
     tt.remove_task_ref<false>(task);
