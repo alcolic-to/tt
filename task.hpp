@@ -711,12 +711,12 @@ inline std::fstream& operator<<(std::fstream& fs, const Idx& idx)
  * It holds task, if task is loaded from file, nullopt otherwise, and file offset where task is
  * located.
  */
-struct TaskCacheEntry {
-    TaskCacheEntry() = default;
+struct TCEntry {
+    TCEntry() = default;
 
-    TaskCacheEntry(u64 offset) : m_offset{offset} {}
+    TCEntry(u64 offset) : m_offset{offset} {}
 
-    TaskCacheEntry(Task task, u64 offset) : m_task{std::move(task)}, m_offset{offset} {}
+    TCEntry(Task task, u64 offset) : m_task{std::move(task)}, m_offset{offset} {}
 
     std::optional<Task> m_task{std::nullopt};
     u64 m_offset{0};
@@ -759,7 +759,7 @@ public:
         if (!task_exists(id))
             throw std::runtime_error{std::format("Task {} does not exists.", as_num(id))};
 
-        TaskCacheEntry& entry{get_cache_entry(id)};
+        TCEntry& entry{get_cache_entry(id)};
         if (!entry.m_task)
             entry.m_task = task_from_offset(entry.m_offset);
 
@@ -778,7 +778,7 @@ public:
         set_fspos(m_idx_fs, std::ios::end);
         m_idx_fs << Idx{task.id(), offset};
 
-        m_cache.emplace(task.id(), TaskCacheEntry{std::move(task), offset});
+        m_cache.emplace(task.id(), TCEntry{std::move(task), offset});
     }
 
     void change_by_replace(const Task& base, Task changed)
@@ -806,7 +806,7 @@ public:
         for (const auto& idx : m_idxs)
             m_idx_fs << idx;
 
-        get_cache_entry(base.id()) = TaskCacheEntry{std::move(changed), offset};
+        get_cache_entry(base.id()) = TCEntry{std::move(changed), offset};
     }
 
     /**
@@ -903,7 +903,7 @@ private:
 
     bool has_cache_entry(ID id) const noexcept { return m_cache.contains(id); }
 
-    TaskCacheEntry& get_cache_entry(ID id)
+    TCEntry& get_cache_entry(ID id)
     {
         if (!has_cache_entry(id))
             throw std::runtime_error{std::format("ID {} not in cache.", as_num(id))};
@@ -941,9 +941,9 @@ private: /* members */
 
     /*
      * Tasks cache.
-     * Cache is ordered - newest tasks first.
+     * Cache is ordered by ID - newest tasks first.
      */
-    std::map<ID, TaskCacheEntry, Cmp> m_cache;
+    std::map<ID, TCEntry, Cmp> m_cache;
 };
 
 class TaskTracker {
@@ -1219,10 +1219,10 @@ public:
 
         const auto it = std::find(refs.begin(), refs.end(), uid);
         if (it == refs.end()) {
-            if constexpr (!throws)
-                return;
+            if constexpr (throws)
+                throw std::runtime_error{std::format("Task not assigned to {}.", username())};
 
-            throw std::runtime_error{std::format("Task not assigned to {}.", username())};
+            return;
         }
 
         refs.erase(it);
