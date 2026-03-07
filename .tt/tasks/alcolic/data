@@ -1,0 +1,35 @@
+1772899243000380000
+1
+0
+0
+alcolic         
+alcolic         
+171
+Figure out what should be done with log command.
+
+Currently, -a means all resolved/unresolved/in progress tasks, and -gl means
+global and local, which is little confusing.
+1772899276135301000
+1
+0
+0
+alcolic         
+alcolic         
+39
+Try Vadims's debugger vscode extension.
+1772899283722389000
+1
+0
+0
+alcolic         
+alcolic         
+45
+Enable all compiler warning in CMakeLists.txt
+1772899291337399000
+1
+0
+0
+alcolic         
+alcolic         
+26
+Implement scratch command.
